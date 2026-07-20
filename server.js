@@ -53,14 +53,30 @@ function verifyPin(pin, saved) {
   return actual.length === target.length && crypto.timingSafeEqual(actual, target);
 }
 
+let lastStateSerialized = null;
 function readState() {
-  try { return JSON.parse(fs.readFileSync(stateFile, "utf8")); }
+  let raw;
+  try { raw = fs.readFileSync(stateFile, "utf8"); }
   catch { return { accounts: {}, sessions: {} }; }
+  try { const parsed = JSON.parse(raw); lastStateSerialized = raw; return parsed; }
+  catch {
+    // Never silently discard a corrupt state file (that would wipe every account/token). Preserve it
+    // for recovery and start clean. Atomic writes below make this path very unlikely in practice.
+    try { fs.renameSync(stateFile, `${stateFile}.corrupt-${Date.now()}`); } catch {}
+    return { accounts: {}, sessions: {} };
+  }
 }
 
 function writeState(state) {
+  const serialized = JSON.stringify(state, null, 2);
+  if (serialized === lastStateSerialized) return; // unchanged: skip the write to reduce SD-card wear
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+  const tmp = `${stateFile}.${process.pid}.tmp`;
+  const fd = fs.openSync(tmp, "w");
+  try { fs.writeSync(fd, serialized); fs.fsyncSync(fd); }
+  finally { fs.closeSync(fd); }
+  fs.renameSync(tmp, stateFile); // atomic: readers see either the old or the new file, never a partial write
+  lastStateSerialized = serialized;
 }
 
 function encrypt(value) {
