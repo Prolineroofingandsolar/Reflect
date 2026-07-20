@@ -1686,3 +1686,22 @@ input[type="color"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Smart Home preview markers */
+.preview-tag {
+  font-size: 0.5em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.7);
+  margin-left: 10px;
+}
+
+.preview-note {
+  margin: 0 0 18px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: clamp(15px, 1.3vw, 19px);
+}

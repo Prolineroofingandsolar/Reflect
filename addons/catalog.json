@@ -43,13 +43,13 @@
     "id": "smartHome",
     "name": "Smart Home",
     "icon": "H",
-    "description": "A future Home Assistant hub for lights, climate, locks and scenes.",
+    "description": "Preview of the upcoming Home Assistant hub for lights, climate, locks and scenes. Shows sample tiles only — live control is coming soon.",
     "category": "home",
     "version": "0.8.0",
     "screens": ["Smart Home"],
     "widgets": ["Home Summary"],
     "permissions": ["Home hub devices"],
-    "requiresConnection": true,
+    "requiresConnection": false,
     "view": "homekit"
   },
   {

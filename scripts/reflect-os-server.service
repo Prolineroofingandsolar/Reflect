@@ -1,0 +1,17 @@
+[Unit]
+Description=Reflect OS local server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/reflect-os
+ExecStart=/usr/bin/node /home/pi/reflect-os/server.js
+Restart=always
+RestartSec=3
+# REFLECT_SECRET is auto-generated to data/secret.key on first run.
+# To pin your own, uncomment and set a long random value:
+# Environment=REFLECT_SECRET=replace-with-a-long-random-value
+
+[Install]
+WantedBy=multi-user.target
