@@ -14,7 +14,22 @@ const catalogFile = path.join(root, "addons", "catalog.json");
 let localConfig = {};
 try { localConfig = JSON.parse(fs.readFileSync(path.join(root, "reflect-os.config.json"), "utf8")); } catch {}
 const oauthStates = new Map();
-const secret = crypto.createHash("sha256").update(process.env.REFLECT_SECRET || localConfig.reflectSecret || "reflect-os-local-device").digest();
+const pinAttempts = new Map();
+
+function resolveSecret() {
+  const configured = process.env.REFLECT_SECRET || localConfig.reflectSecret;
+  if (configured && configured !== "replace-with-a-long-random-value") return configured;
+  // No real secret configured: generate one once and persist it outside the web root (0600) so provider
+  // tokens are never encrypted with a public constant. Removing this file invalidates stored tokens.
+  const keyFile = path.join(dataDir, "secret.key");
+  try { return fs.readFileSync(keyFile, "utf8").trim(); } catch {}
+  const generated = crypto.randomBytes(48).toString("hex");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(keyFile, generated, { mode: 0o600 });
+  console.warn("Reflect OS generated a device secret at data/secret.key. Set REFLECT_SECRET to override.");
+  return generated;
+}
+const secret = crypto.createHash("sha256").update(resolveSecret()).digest();
 const providers = {
   spotify: {
     clientId: process.env.SPOTIFY_CLIENT_ID || localConfig.spotifyClientId,
@@ -99,8 +114,10 @@ function cookies(req) {
 
 function currentAccount(req) {
   const state = readState();
-  const id = state.sessions?.[cookies(req).reflect_session];
+  const entry = state.sessions?.[cookies(req).reflect_session];
+  const id = typeof entry === "string" ? entry : entry?.id; // support legacy string sessions
   if (!id) return null;
+  if (entry && typeof entry === "object" && entry.expires && entry.expires < Date.now()) return null;
   return state.accounts[id] ? { id, state, account: state.accounts[id] } : null;
 }
 
@@ -192,14 +209,24 @@ async function api(req, res, url) {
     const id = crypto.createHash("sha256").update(email).digest("hex").slice(0, 20);
     const state = readState();
     const existing = state.accounts[id];
-    if (existing?.pinHash && !verifyPin(pin, existing.pinHash)) return json(res, 401, { error: "That PIN is not correct." });
+    const attempt = pinAttempts.get(id);
+    if (attempt && attempt.until > Date.now()) return json(res, 429, { error: "Too many incorrect PIN attempts. Wait a moment and try again." });
+    if (existing?.pinHash && !verifyPin(pin, existing.pinHash)) {
+      const count = (attempt?.count || 0) + 1;
+      pinAttempts.set(id, { count, until: count >= 5 ? Date.now() + Math.min(15 * 60000, (count - 4) * 30000) : 0 });
+      return json(res, 401, { error: "That PIN is not correct." });
+    }
+    pinAttempts.delete(id);
     state.accounts[id] = { name, email, pinHash: existing?.pinHash || hashPin(pin), addOns: existing?.addOns || { weather: { installed: true, enabled: true, connectionStatus: "connected", lastSync: "Live forecast" } }, tokens: existing?.tokens || {}, data: existing?.data || { tasks: [], events: [] } };
     writeState(state);
     const sessionId = crypto.randomBytes(24).toString("hex");
     state.sessions = state.sessions || {};
-    state.sessions[sessionId] = id;
+    const now = Date.now();
+    const maxAge = 60 * 60 * 24 * 365; // 1 year: survive kiosk reboots without forcing a re-PIN
+    for (const [key, value] of Object.entries(state.sessions)) { if (value && typeof value === "object" && value.expires && value.expires < now) delete state.sessions[key]; }
+    state.sessions[sessionId] = { id, expires: now + maxAge * 1000 };
     writeState(state);
-    return json(res, 200, { signedIn: true, account: publicAccount(state.accounts[id], id) }, { "Set-Cookie": `reflect_session=${sessionId}; HttpOnly; SameSite=Lax; Path=/` });
+    return json(res, 200, { signedIn: true, account: publicAccount(state.accounts[id], id) }, { "Set-Cookie": `reflect_session=${sessionId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}` });
   }
   if (url.pathname === "/api/session" && req.method === "DELETE") {
     const state = readState();
@@ -255,6 +282,7 @@ async function api(req, res, url) {
     const provider = providers[id];
     const configured = id === "spotify" ? provider.clientId : provider.clientId && provider.clientSecret;
     if (!configured) return json(res, 503, { error: id === "spotify" ? "Spotify needs the Reflect owner's Client ID before accounts can connect." : "Google Calendar is not configured on this Reflect device." });
+    for (const [key, value] of oauthStates) { if (Date.now() - value.createdAt > 600000) oauthStates.delete(key); }
     const stateValue = crypto.randomBytes(24).toString("hex");
     const verifier = id === "spotify" ? crypto.randomBytes(64).toString("base64url") : "";
     oauthStates.set(stateValue, { accountId: session.id, providerId: id, verifier, createdAt: Date.now() });
