@@ -1,0 +1,68 @@
+[
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "icon": "S",
+    "description": "Search, play and control Spotify directly from the mirror.",
+    "category": "media",
+    "version": "1.2.0",
+    "screens": ["Music"],
+    "widgets": ["Now Playing"],
+    "permissions": ["Playback status", "Control playback", "Recently played tracks"],
+    "requiresConnection": true,
+    "view": "music"
+  },
+  {
+    "id": "googleCalendar",
+    "name": "Google Calendar",
+    "icon": "31",
+    "description": "Live agendas and upcoming events from your Google account.",
+    "category": "productivity",
+    "version": "1.1.0",
+    "screens": ["Calendar"],
+    "widgets": ["Agenda"],
+    "permissions": ["Read calendar events"],
+    "requiresConnection": true,
+    "view": "calendar"
+  },
+  {
+    "id": "weather",
+    "name": "Weather",
+    "icon": "°",
+    "description": "Live current conditions, hourly outlook and seven-day forecast.",
+    "category": "utilities",
+    "version": "1.1.0",
+    "screens": ["Weather"],
+    "widgets": ["Current Weather"],
+    "permissions": ["Approximate location"],
+    "requiresConnection": false,
+    "view": "weather",
+    "preinstalled": true
+  },
+  {
+    "id": "smartHome",
+    "name": "Smart Home",
+    "icon": "H",
+    "description": "A future Home Assistant hub for lights, climate, locks and scenes.",
+    "category": "home",
+    "version": "0.8.0",
+    "screens": ["Smart Home"],
+    "widgets": ["Home Summary"],
+    "permissions": ["Home hub devices"],
+    "requiresConnection": true,
+    "view": "homekit"
+  },
+  {
+    "id": "photos",
+    "name": "Photos",
+    "icon": "P",
+    "description": "A private slideshow using photos stored only on this mirror.",
+    "category": "personal",
+    "version": "1.0.0",
+    "screens": [],
+    "widgets": ["Photo Slideshow"],
+    "permissions": ["Files you choose"],
+    "requiresConnection": false,
+    "view": "addons"
+  }
+]

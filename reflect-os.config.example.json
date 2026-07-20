@@ -1,0 +1,6 @@
+{
+  "reflectSecret": "replace-with-a-long-random-value",
+  "spotifyClientId": "",
+  "googleClientId": "",
+  "googleClientSecret": ""
+}

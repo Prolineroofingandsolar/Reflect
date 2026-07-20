@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Reflect OS
+Comment=Launch Reflect OS smart mirror
+Exec=/home/pi/reflect-os/scripts/launch-pi.sh
+X-GNOME-Autostart-enabled=true

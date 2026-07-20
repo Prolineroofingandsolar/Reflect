@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>Reflect OS</title>
+  <script>
+    if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%239d7cff' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css?v=0.6.0">
+</head>
+<body>
+<main class="reflect-os" aria-live="polite">
+  <nav class="quick-nav" id="quickNav" aria-label="Reflect OS navigation">
+    <button class="nav-item is-active" data-view="home" aria-current="page">Home</button>
+    <button class="nav-item" data-view="calendar">Calendar</button>
+    <button class="nav-item" data-view="tasks">Tasks</button>
+    <button class="nav-item" data-view="music">Music</button>
+    <button class="nav-item" data-view="weather">Weather</button>
+    <button class="nav-item" data-view="homekit">Smart Home</button>
+    <button class="nav-item" data-view="addons">Add-ons</button>
+    <button class="nav-item" data-view="settings">Settings</button>
+  </nav>
+
+  <section class="view home-view is-active" id="view-home" aria-label="Home">
+    <div class="layout-grid" id="layoutGrid" aria-label="Customisable mirror layout"></div>
+    <div class="edit-toolbar" id="editToolbar" aria-label="Layout editor">
+      <strong>Layout unlocked</strong>
+      <span id="editHint">Select a widget, then choose its zone and size.</span>
+      <button id="saveLayout" type="button">Done</button>
+      <button id="resetLayout" type="button">Reset</button>
+    </div>
+  </section>
+
+  <section class="view page-view" id="view-calendar" aria-label="Calendar">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow" id="calendarStatus">Google Calendar add-on</p>
+        <h1>Calendar</h1>
+      </div>
+      <button class="ghost-button" id="addEvent" type="button">Add event</button>
+    </header>
+    <div class="tabs" role="tablist" aria-label="Calendar views" id="calendarTabs">
+      <button class="is-selected" type="button" data-calendar-view="day">Day</button>
+      <button type="button" data-calendar-view="week">Week</button>
+      <button type="button" data-calendar-view="upcoming">Upcoming</button>
+    </div>
+    <div class="timeline" id="calendarTimeline">
+      <article><time>08:00</time><div><h3>Morning planning</h3><p>Kitchen mirror</p></div></article>
+      <article><time>09:30</time><div><h3>Design review</h3><p>Studio</p></div></article>
+      <article><time>12:15</time><div><h3>Lunch with Maya</h3><p>Soho</p></div></article>
+      <article><time>17:45</time><div><h3>Gym session</h3><p>Strength block</p></div></article>
+    </div>
+  </section>
+
+  <section class="view page-view" id="view-tasks" aria-label="Tasks">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Focus list</p>
+        <h1>Tasks</h1>
+      </div>
+      <button class="ghost-button" id="addTask" type="button">Add task</button>
+    </header>
+    <div class="tabs" role="tablist" aria-label="Task filters" id="taskTabs">
+      <button class="is-selected" type="button" data-task-filter="today">Today</button>
+      <button type="button" data-task-filter="upcoming">Upcoming</button>
+      <button type="button" data-task-filter="completed">Completed</button>
+      <button type="button" data-task-filter="work">Work</button>
+      <button type="button" data-task-filter="home">Home</button>
+    </div>
+    <ul class="detail-tasks" id="taskList">
+      <li><button class="check"></button><div><h3>Review prototype</h3><p>Work · Before 11:00</p></div></li>
+      <li><button class="check"></button><div><h3>Water plants</h3><p>Home</p></div></li>
+      <li><button class="check is-done"></button><div><h3>Morning stretch</h3><p>Health · Completed</p></div></li>
+      <li><button class="check"></button><div><h3>Order coffee</h3><p>Home</p></div></li>
+    </ul>
+  </section>
+
+  <section class="view page-view music-page" id="view-music" aria-label="Music">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow" id="spotifyStatus">Spotify module</p>
+        <h1>Spotify</h1>
+      </div>
+      <div class="page-actions">
+        <button class="ghost-button" id="spotifyUseDevice" type="button" hidden>Play on this mirror</button>
+        <button class="ghost-button" id="spotifyConnect" type="button">Connect Spotify</button>
+      </div>
+    </header>
+    <section class="spotify-setup" id="spotifySetup" aria-label="Spotify connection setup">
+      <div>
+        <h2>Connect Spotify</h2>
+        <p id="spotifySetupText">Sign in to Reflect OS, then connect Spotify from Add-ons. Users only need their normal Spotify account.</p>
+      </div>
+      <div class="setup-actions">
+        <button class="ghost-button" id="spotifyOpenAddons" type="button">Open Add-ons</button>
+      </div>
+    </section>
+    <section class="spotify-library" id="spotifyLibrary" aria-label="Choose Spotify music">
+      <div class="spotify-library-head">
+        <div>
+          <p class="eyebrow" id="spotifyDeviceStatus">Preparing Reflect OS player</p>
+          <h2>Choose music</h2>
+        </div>
+        <form class="spotify-search" id="spotifySearchForm" role="search">
+          <label class="sr-only" for="spotifySearch">Search Spotify</label>
+          <input id="spotifySearch" type="search" placeholder="Search songs or artists" autocomplete="off">
+          <button class="store-action" type="submit">Search</button>
+        </form>
+      </div>
+      <div class="spotify-results" id="spotifyResults" aria-live="polite">
+        <p class="empty-state">Search for a song to play it through this mirror.</p>
+      </div>
+      <section class="spotify-recent" aria-labelledby="spotifyRecentHeading">
+        <div class="spotify-section-heading">
+          <h3 id="spotifyRecentHeading">Recently played</h3>
+          <button class="ghost-button" id="spotifyRefreshRecent" type="button">Refresh</button>
+        </div>
+        <div class="spotify-results" id="spotifyRecent" aria-live="polite">
+          <p class="empty-state">Your recent tracks will appear here.</p>
+        </div>
+      </section>
+    </section>
+    <div class="music-layout">
+      <div class="album-art" id="spotifyArt" aria-label="Album artwork"><img id="spotifyArtwork" alt="" hidden></div>
+      <div class="music-detail">
+        <p class="song large" id="spotifyTrack">Midnight City</p>
+        <p class="artist" id="spotifyArtist">M83</p>
+        <p class="spotify-meta" id="spotifyMeta">Mirror Focus · Living room speaker</p>
+        <div class="player-controls">
+          <button id="spotifyPrevious" type="button" aria-label="Previous track">‹</button>
+          <button class="primary-control" id="spotifyPlay" type="button" aria-label="Play or pause">Ⅱ</button>
+          <button id="spotifyNext" type="button" aria-label="Next track">›</button>
+        </div>
+        <div class="progress large-progress" aria-label="Playback progress"><span id="spotifyProgress"></span></div>
+        <label class="volume">Volume <input id="spotifyVolume" type="range" min="0" max="100" value="42"></label>
+      </div>
+      <ol class="playlist" id="spotifyPlaylists" aria-label="Spotify playlists">
+        <li>Mirror Focus</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="view page-view" id="view-weather" aria-label="Weather">
+    <header class="page-header weather-header">
+      <div class="weather-title">
+        <p class="eyebrow" id="weatherLocation">London</p>
+        <h1 id="weatherCurrent">Loading weather</h1>
+        <p class="weather-feels" id="weatherFeels">Updating local conditions</p>
+      </div>
+      <form class="weather-search" id="weatherSearchForm" role="search">
+        <label class="sr-only" for="weatherSearch">Find a weather location</label>
+        <input id="weatherSearch" type="search" placeholder="Town or city" autocomplete="off">
+        <button class="store-action" type="submit">Find</button>
+      </form>
+    </header>
+    <div class="weather-location-results" id="weatherLocationResults" aria-live="polite"></div>
+    <section class="weather-hourly" aria-labelledby="hourlyHeading">
+      <h2 id="hourlyHeading">Hourly forecast</h2>
+      <div class="hourly-strip" id="weatherHourly"><p>Waiting for forecast</p></div>
+    </section>
+    <div class="weather-content">
+      <section class="weather-daily" aria-labelledby="dailyHeading">
+        <h2 id="dailyHeading">Seven-day forecast</h2>
+        <div id="weatherDaily"><p>Waiting for forecast</p></div>
+      </section>
+      <section class="weather-facts" aria-label="Weather details">
+        <div><span>Rain</span><strong id="weatherRain">--</strong></div>
+        <div><span>Wind</span><strong id="weatherWind">--</strong></div>
+        <div><span>Sunrise</span><strong id="weatherSunrise">--</strong></div>
+        <div><span>Sunset</span><strong id="weatherSunset">--</strong></div>
+      </section>
+    </div>
+  </section>
+
+  <section class="view page-view" id="view-homekit" aria-label="Smart Home">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Home Assistant placeholder</p>
+        <h1>Smart Home</h1>
+      </div>
+    </header>
+    <div class="homekit-grid">
+      <button type="button" data-home-device="lights"><span>Living room</span><strong>Lights 42%</strong></button>
+      <button type="button" data-home-device="hallway"><span>Hallway</span><strong>Motion idle</strong></button>
+      <button type="button" data-home-device="heating"><span>Heating</span><strong>20.5°</strong></button>
+      <button type="button" data-home-device="door"><span>Front door</span><strong>Locked</strong></button>
+      <button type="button" data-home-device="scene"><span>Scenes</span><strong>Morning</strong></button>
+    </div>
+  </section>
+
+  <section class="view page-view" id="view-addons" aria-label="Add-ons">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow" id="accountStatus">Reflect account</p>
+        <h1>Add-on Store</h1>
+      </div>
+      <button class="ghost-button" id="signOutAccount" type="button">Sign out</button>
+    </header>
+    <section class="account-panel" id="accountPanel" aria-label="Reflect account">
+      <div>
+        <h2>Your Reflect account</h2>
+        <p id="accountHelp">Sign in to install and manage add-ons for this mirror.</p>
+      </div>
+      <label><span>Name</span><input id="accountName" autocomplete="name"></label>
+      <label><span>Email</span><input id="accountEmail" autocomplete="email" inputmode="email"></label>
+      <label><span>Device PIN</span><input id="accountPin" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4-8 digits"></label>
+      <button class="ghost-button" id="signInAccount" type="button">Create or sign in</button>
+    </section>
+    <div class="store-toolbar">
+      <div class="tabs" role="tablist" aria-label="Add-on store views">
+        <button class="is-selected" type="button" data-store-tab="discover">Discover</button>
+        <button type="button" data-store-tab="installed">Installed</button>
+      </div>
+      <label class="store-search"><span class="sr-only">Search add-ons</span><input id="addonSearch" type="search" placeholder="Search add-ons"></label>
+      <label class="store-category"><span class="sr-only">Category</span><select id="addonCategory"><option value="all">All categories</option><option value="productivity">Productivity</option><option value="media">Media</option><option value="home">Home</option><option value="utilities">Utilities</option><option value="personal">Personal</option></select></label>
+    </div>
+    <p class="store-message" id="storeMessage" role="status"></p>
+    <div class="addons-grid" id="addonsGrid" aria-label="Add-on catalogue"></div>
+    <dialog class="addon-detail" id="addonDetail" aria-labelledby="addonDetailTitle">
+      <button class="dialog-close" id="closeAddonDetail" type="button" aria-label="Close">&times;</button>
+      <div id="addonDetailContent"></div>
+    </dialog>
+  </section>
+
+  <section class="view page-view" id="view-settings" aria-label="Settings">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Reflect OS</p>
+        <h1>Settings</h1>
+      </div>
+    </header>
+    <div class="settings-list">
+      <label><span>Person name</span><input id="personName" autocomplete="name"></label>
+      <label><span>Greeting</span><input id="greetingPrefix"></label>
+      <label><span>Clock format</span><select id="clockFormat"><option value="24">24 hour</option><option value="12">12 hour</option></select></label>
+      <label><span>Accent colour</span><input id="accentColor" type="color"></label>
+      <label><span>Default screen</span><select id="defaultView"><option value="home">Home</option><option value="calendar">Calendar</option><option value="tasks">Tasks</option><option value="music">Music</option><option value="weather">Weather</option><option value="homekit">Smart Home</option><option value="addons">Add-ons</option></select></label>
+      <label><span>Navigation timeout</span><select id="navTimeout"><option value="2400">2.4 seconds</option><option value="3600">3.6 seconds</option><option value="5200">5.2 seconds</option><option value="8000">8 seconds</option></select></label>
+      <label><span>Weather location</span><input id="weatherPlace" readonly></label>
+      <label><span>Spotify widget</span><select id="spotifyWidgetMode"><option value="minimal">Minimal</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></label>
+      <label><span>Spotify device</span><input id="spotifyDevice"></label>
+      <label><span>Spotify autoplay</span><select id="spotifyAutoplay"><option value="false">Off</option><option value="true">On</option></select></label>
+      <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
+    </div>
+  </section>
+
+  <dialog class="item-dialog" id="itemDialog" aria-labelledby="itemDialogTitle">
+    <form id="itemForm">
+      <header>
+        <p class="eyebrow" id="itemDialogEyebrow">Reflect OS</p>
+        <h2 id="itemDialogTitle">Add item</h2>
+      </header>
+      <div id="itemFields"></div>
+      <footer>
+        <button class="ghost-button" id="cancelItem" type="button">Cancel</button>
+        <button class="store-action" type="submit">Add</button>
+      </footer>
+    </form>
+  </dialog>
+</main>
+<script src="app.js?v=0.6.0"></script>
+</body>
+</html>
