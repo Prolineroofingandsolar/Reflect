@@ -374,21 +374,41 @@ async function api(req, res, url) {
   return json(res, 404, { error: "Not found" });
 }
 
+const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8" };
+// Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
+// so provider secrets in reflect-os.config.json can never be read over HTTP.
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "addons/catalog.json"]);
+
 function serveStatic(req, res, url) {
-  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");
   const file = path.resolve(root, relative);
-  if ((file !== root && !file.startsWith(`${root}${path.sep}`)) || file.includes(`${path.sep}data${path.sep}`)) return json(res, 403, { error: "Forbidden" });
+  const withinRoot = file === root || file.startsWith(`${root}${path.sep}`);
+  const ext = path.extname(file).toLowerCase();
+  const isAsset = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"].includes(ext);
+  const hasDotSegment = relative.split("/").some((part) => part.startsWith("."));
+  const allowed = withinRoot && !hasDotSegment && (staticAllowList.has(relative) || isAsset);
+  if (!allowed) return json(res, 403, { error: "Forbidden" });
   fs.readFile(file, (error, data) => {
     if (error) return json(res, 404, { error: "Not found" });
-    const ext = path.extname(file);
-    const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
-    res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream", "Cache-Control": ext === ".html" ? "no-store" : "public, max-age=300" });
+    res.writeHead(200, { "Content-Type": staticTypes[ext] || "application/octet-stream", "Cache-Control": ext === ".html" ? "no-store" : "public, max-age=300" });
     res.end(data);
   });
 }
 
+function allowedHost(req) {
+  // The server binds to loopback only; reject any other Host header to block DNS-rebinding attacks
+  // that would otherwise reach these endpoints as a "same-origin" request from a malicious page.
+  const name = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
+  return name === "127.0.0.1" || name === "localhost" || name === "[::1]" || name === "::1" || name === "";
+}
+
 function handleRequest(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host || `127.0.0.1:${port}`}`);
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+  if (!allowedHost(req)) return json(res, 403, { error: "Forbidden" });
+  const url = new URL(req.url, `http://127.0.0.1:${port}`);
   Promise.resolve(url.pathname.startsWith("/api/") ? api(req, res, url) : serveStatic(req, res, url)).catch((error) => json(res, 500, { error: error.message }));
 }
 
