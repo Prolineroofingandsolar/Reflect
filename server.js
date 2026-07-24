@@ -13,6 +13,8 @@ const stateFile = path.join(dataDir, "state.json");
 const catalogFile = path.join(root, "addons", "catalog.json");
 let localConfig = {};
 try { localConfig = JSON.parse(fs.readFileSync(path.join(root, "reflect-os.config.json"), "utf8")); } catch {}
+let appVersion = "0.0.0";
+try { appVersion = fs.readFileSync(path.join(root, "VERSION"), "utf8").trim() || appVersion; } catch {}
 const oauthStates = new Map();
 const pinAttempts = new Map();
 
@@ -169,7 +171,7 @@ async function api(req, res, url) {
     return json(res, 200, { signedIn: Boolean(session), account: session ? publicAccount(session.account, session.id) : null });
   }
   if (url.pathname === "/api/health" && req.method === "GET") {
-    return json(res, 200, { ok: true, version: 9, spotifyConfigured: Boolean(providers.spotify.clientId), googleConfigured: Boolean(providers.googleCalendar.clientId && providers.googleCalendar.clientSecret) });
+    return json(res, 200, { ok: true, version: appVersion, spotifyConfigured: Boolean(providers.spotify.clientId), googleConfigured: Boolean(providers.googleCalendar.clientId && providers.googleCalendar.clientSecret) });
   }
   if (url.pathname === "/api/catalog" && req.method === "GET") {
     return json(res, 200, { addOns: readCatalog() });

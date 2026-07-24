@@ -365,6 +365,18 @@ $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout")
 document.addEventListener("mousemove",showNav);document.addEventListener("click",showNav);document.addEventListener("touchstart",event=>{touchStartX=event.changedTouches[0].clientX;longPressTimer=setTimeout(()=>setEditing(true),760);showNav();},{passive:true});document.addEventListener("touchend",event=>{clearTimeout(longPressTimer);const delta=event.changedTouches[0].clientX-touchStartX;if(Math.abs(delta)<70||isEditing)return;const visible=[...navItems].filter(item=>!item.hidden);const active=visible.findIndex(item=>item.classList.contains("is-active"));showView(visible[Math.max(0,Math.min(visible.length-1,active+(delta<0?1:-1)))].dataset.view);},{passive:true});
 document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if(event.key==="Escape"){if(addonDetail.open)addonDetail.close();else setEditing(false);return;}if(event.key.toLowerCase()==="e"){setEditing(!isEditing);return;}const view={h:"home",c:"calendar",t:"tasks",m:"music",w:"weather",s:"homekit",a:"addons",",":"settings"}[event.key.toLowerCase()];if(view)showView(view);});
 
+let bootVersion=null;
+async function watchForUpdates(){
+  try{const health=await api("/api/health");
+    if(!health.version)return;
+    if(bootVersion===null){bootVersion=health.version;return;}
+    if(health.version!==bootVersion){
+      if(isEditing||sampleData.track.playing)return; // never interrupt editing or playback; apply on a later idle poll
+      location.reload();
+    }
+  }catch{}
+}
+
 const setupKey="reflect-os-setup-complete-v1";
 let setupStep=0,setupLocation=null,setupError="";
 const setupSteps=["welcome","location","account"];
@@ -429,5 +441,5 @@ $("setupNext")?.addEventListener("click",setupAdvance);
 $("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
 $("setupSkip")?.addEventListener("click",completeSetup);
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);watchForUpdates();setInterval(watchForUpdates,120000);}
 boot();
