@@ -178,18 +178,12 @@
   <section class="view page-view" id="view-homekit" aria-label="Smart Home">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Preview · live Home Assistant control coming soon</p>
+        <p class="eyebrow" id="homekitStatus">Home Assistant</p>
         <h1>Smart Home</h1>
       </div>
+      <button class="ghost-button" id="homekitConnect" type="button">Connect Home Assistant</button>
     </header>
-    <p class="preview-note">These tiles are a design preview and don't control real devices yet.</p>
-    <div class="homekit-grid">
-      <button type="button" data-home-device="lights"><span>Living room</span><strong>Lights 42%</strong></button>
-      <button type="button" data-home-device="hallway"><span>Hallway</span><strong>Motion idle</strong></button>
-      <button type="button" data-home-device="heating"><span>Heating</span><strong>20.5°</strong></button>
-      <button type="button" data-home-device="door"><span>Front door</span><strong>Locked</strong></button>
-      <button type="button" data-home-device="scene"><span>Scenes</span><strong>Morning</strong></button>
-    </div>
+    <div class="homekit-grid" id="homekitGrid"></div>
   </section>
 
   <section class="view page-view" id="view-addons" aria-label="Add-ons">
@@ -247,6 +241,25 @@
       <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
     </div>
   </section>
+
+  <dialog class="item-dialog" id="haDialog" aria-labelledby="haDialogTitle">
+    <form id="haForm">
+      <header>
+        <p class="eyebrow">Home Assistant</p>
+        <h2 id="haDialogTitle">Connect Home Assistant</h2>
+      </header>
+      <div>
+        <label><span>Server URL</span><input name="baseUrl" placeholder="http://homeassistant.local:8123" autocomplete="off" required></label>
+        <label><span>Long-lived access token</span><input name="token" type="password" autocomplete="off" required></label>
+        <p class="ha-help">In Home Assistant, open your profile → Security → Long-lived access tokens → Create token, then paste it here. Details stay on this mirror.</p>
+        <p class="ha-error" id="haDialogError" role="alert"></p>
+      </div>
+      <footer>
+        <button class="ghost-button" id="haCancel" type="button">Cancel</button>
+        <button class="store-action" type="submit">Connect</button>
+      </footer>
+    </form>
+  </dialog>
 
   <dialog class="item-dialog" id="itemDialog" aria-labelledby="itemDialogTitle">
     <form id="itemForm">

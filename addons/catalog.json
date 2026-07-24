@@ -43,13 +43,13 @@
     "id": "smartHome",
     "name": "Smart Home",
     "icon": "H",
-    "description": "Preview of the upcoming Home Assistant hub for lights, climate, locks and scenes. Shows sample tiles only — live control is coming soon.",
+    "description": "Live Home Assistant control for lights, switches, climate, locks and scenes from the mirror.",
     "category": "home",
-    "version": "0.8.0",
+    "version": "1.0.0",
     "screens": ["Smart Home"],
     "widgets": ["Home Summary"],
-    "permissions": ["Home hub devices"],
-    "requiresConnection": false,
+    "permissions": ["Home Assistant devices"],
+    "requiresConnection": true,
     "view": "homekit"
   },
   {

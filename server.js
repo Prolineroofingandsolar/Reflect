@@ -248,6 +248,49 @@ async function api(req, res, url) {
     writeState(session.state);
     return json(res, 200, session.account.data);
   }
+
+  // Home Assistant uses a user-pasted long-lived access token rather than OAuth.
+  if (url.pathname === "/api/integrations/homeAssistant/config" && req.method === "POST") {
+    const input = await body(req);
+    const baseUrl = String(input.baseUrl || "").trim().replace(/\/+$/, "");
+    const token = String(input.token || "").trim();
+    if (!/^https?:\/\/[^\s]+$/.test(baseUrl) || !token) return json(res, 400, { error: "Enter your Home Assistant URL and a long-lived access token." });
+    let ok = false;
+    try { const check = await fetch(`${baseUrl}/api/`, { headers: { Authorization: `Bearer ${token}` } }); ok = check.ok; } catch {}
+    if (!ok) return json(res, 502, { error: "Could not reach Home Assistant with those details. Check the URL and token." });
+    session.account.tokens = session.account.tokens || {};
+    session.account.tokens.smartHome = encrypt({ baseUrl, token });
+    session.account.addOns.smartHome = { ...(session.account.addOns.smartHome || {}), installed: true, enabled: true, connectionStatus: "connected", lastSync: new Date().toISOString() };
+    writeState(session.state);
+    return json(res, 200, session.account.addOns.smartHome);
+  }
+  if (url.pathname === "/api/homeassistant/states" && req.method === "GET") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    try {
+      const response = await fetch(`${config.baseUrl}/api/states`, { headers: { Authorization: `Bearer ${config.token}` } });
+      if (!response.ok) return json(res, response.status, { error: "Home Assistant sync failed." });
+      const all = await response.json();
+      const domains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "sensor", "binary_sensor"]);
+      const entities = (Array.isArray(all) ? all : []).filter((entity) => domains.has(String(entity.entity_id).split(".")[0])).map((entity) => ({
+        id: entity.entity_id, domain: String(entity.entity_id).split(".")[0], name: entity.attributes?.friendly_name || entity.entity_id,
+        state: entity.state, unit: entity.attributes?.unit_of_measurement || "", brightness: entity.attributes?.brightness ?? null, temperature: entity.attributes?.temperature ?? null
+      }));
+      return json(res, 200, { entities, syncedAt: new Date().toISOString() });
+    } catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/homeassistant/service" && req.method === "POST") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    const input = await body(req);
+    if (!/^[a-z_]+\.[a-z_0-9]+$/.test(String(input.service || ""))) return json(res, 400, { error: "Invalid service." });
+    const [domain, service] = input.service.split(".");
+    try {
+      const response = await fetch(`${config.baseUrl}/api/services/${domain}/${service}`, { method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify(input.data && typeof input.data === "object" ? input.data : {}) });
+      if (!response.ok) return json(res, response.status, { error: "Home Assistant could not run that action." });
+      return json(res, 200, { ok: true });
+    } catch (error) { return json(res, 502, { error: error.message }); }
+  }
   const addonMatch = url.pathname.match(/^\/api\/addons\/([A-Za-z0-9_-]+)$/);
   if (addonMatch && req.method === "POST") {
     const id = addonMatch[1];

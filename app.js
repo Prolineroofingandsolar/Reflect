@@ -18,7 +18,7 @@ let addOnRegistry = {
   spotify: { id:"spotify", name:"Spotify", icon:"S", description:"Now playing, search, recent tracks, playback controls, and a mirror-safe music widget.", category:"media", version:"1.2", screens:["Music"], widgets:["Now Playing"], permissions:["Playback status", "Control playback", "Recently played tracks"], requiresConnection:true, view:"music" },
   googleCalendar: { id:"googleCalendar", name:"Google Calendar", icon:"31", description:"Daily agenda, upcoming events, week view, and calendar widgets.", category:"productivity", version:"1.0", screens:["Calendar"], widgets:["Agenda"], permissions:["Read calendar events"], requiresConnection:true, view:"calendar" },
   weather: { id:"weather", name:"Weather", icon:"°", description:"Current weather, forecasts, rain, wind, sunrise, and sunset.", category:"utilities", version:"1.0", screens:["Weather"], widgets:["Current Weather"], permissions:["Approximate location"], requiresConnection:false, view:"weather", preinstalled:true },
-  smartHome: { id:"smartHome", name:"Smart Home", icon:"H", description:"Preview of the upcoming Home Assistant hub. Shows sample tiles only — live control is coming soon.", category:"home", version:"0.8", screens:["Smart Home"], widgets:["Home Summary"], permissions:["Home hub devices"], requiresConnection:false, view:"homekit" },
+  smartHome: { id:"smartHome", name:"Smart Home", icon:"H", description:"Live Home Assistant control for lights, switches, climate, locks and scenes.", category:"home", version:"1.0", screens:["Smart Home"], widgets:["Home Summary"], permissions:["Home Assistant devices"], requiresConnection:true, view:"homekit" },
   photos: { id:"photos", name:"Photos", icon:"P", description:"A private slideshow made from photos stored only on this mirror.", category:"personal", version:"1.0", screens:[], widgets:["Photo Slideshow"], permissions:["Files you choose"], requiresConnection:false, view:"addons" }
 };
 const defaultAddOnState = {
@@ -59,6 +59,7 @@ let hideTimer, longPressTimer, slideshowTimer, photoDb;
 let touchStartX = 0, isEditing = false, selectedWidget = "clock", calendarView = "day", taskFilter = "today", storeTab = "discover", currentPhoto = 0;
 let photoRecords = [], photoUrls = new Map();
 let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
+let homeAssistantEntities = [];
 
 function clone(value){ return JSON.parse(JSON.stringify(value)); }
 function esc(value){ return String(value ?? "").replace(/[&<>'"]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]); }
@@ -129,7 +130,7 @@ function renderWidget(id){
   if(id==="calendar"){const events=sortedEvents().slice(0,3).map(eventDisplay);return `<h2>Upcoming</h2><ol class="event-list compact-list">${events.length?events.map(e=>`<li><time>${esc(e.time)}</time><span>${esc(e.title)}</span>${e.location?`<small>${esc(e.location)}</small>`:""}</li>`).join(""):`<li class="quiet-empty">No upcoming events</li>`}</ol>`;}
   if(id==="tasks") return `<h2>Today</h2><ul class="task-list compact-list">${sampleData.tasks.filter(task=>task.when==="Today").slice(0,4).map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-home-task-index="${index}" aria-label="Mark ${esc(task.title)} complete"></button><span>${esc(task.title)}</span><small>${esc(task.category)}</small></li>`;}).join("")||`<li class="quiet-empty">Nothing due today</li>`}</ul>`;
   if(id==="music") return `<div class="now-playing spotify-widget"><div><p class="song">${esc(sampleData.track.title)}</p><p class="artist">${esc(sampleData.track.artist)}</p></div><div class="mini-controls"><button data-spotify-action="previous" aria-label="Previous track">‹</button><button class="play" data-spotify-action="play" aria-label="Play or pause">${sampleData.track.playing?"Ⅱ":"▶"}</button><button data-spotify-action="next" aria-label="Next track">›</button></div><div class="progress"><span style="width:${sampleData.track.progress}%"></span></div></div>`;
-  if(id==="smartHome") return `<h2>Smart Home <small class="preview-tag">Preview</small></h2><div class="smart-summary">${sampleData.smartHome.map(item=>`<p>${esc(item)}</p>`).join("")}</div>`;
+  if(id==="smartHome"){const items=connected("smartHome")&&homeAssistantEntities.length?homeAssistantEntities.filter(e=>["light","switch","climate","lock"].includes(e.domain)).slice(0,4).map(e=>`${e.name} · ${haValue(e)}`):sampleData.smartHome;return `<h2>Smart Home</h2><div class="smart-summary">${items.map(item=>`<p>${esc(item)}</p>`).join("")}</div>`;}
   if(id==="photos"){
     const record=photoRecords[currentPhoto%Math.max(photoRecords.length,1)];
     const url=record?photoUrls.get(record.id):"";
@@ -199,10 +200,67 @@ async function uninstallAddOn(id){
 }
 async function connectAddOn(id){
   if(!profile.account.signedIn){setMessage("Sign in to connect an account.",true);return;}
+  if(id==="smartHome"){addonDetail.close();$("haDialogError").textContent="";$("haDialog").showModal();return;}
   try{const response=await fetch(`/api/integrations/${id}/connect`,{redirect:"manual"});if(response.type==="opaqueredirect"||response.status===0){location.href=`/api/integrations/${id}/connect`;return;}const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Connection could not start.");location.href=response.url;}catch(error){profile.addOns[id].error=error.message;saveProfile();setMessage(error.message,true);openAddOnDetail(id);}
 }
-async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();renderAddOns();renderSpotifyPage();openAddOnDetail(id);}catch(error){setMessage(error.message,true);}}
+async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){homeAssistantEntities=[];renderHomeKit();renderHome();}renderAddOns();renderSpotifyPage();if(addonDetail.open)openAddOnDetail(id);}catch(error){setMessage(error.message,true);}}
 function formatSync(value){const date=new Date(value);return Number.isNaN(date.valueOf())?value:`Synced ${date.toLocaleString()}`;}
+
+function entityIsOn(e){return !["off","unavailable","unknown","closed","locked","idle","standby"].includes(String(e.state).toLowerCase());}
+function haValue(e){
+  if(e.domain==="climate")return e.temperature!=null?`${Math.round(e.temperature)}°`:esc(e.state);
+  if(e.domain==="light"&&e.brightness!=null&&entityIsOn(e))return `${Math.round(e.brightness/255*100)}%`;
+  if(e.domain==="sensor"||e.domain==="binary_sensor")return `${e.state}${e.unit?` ${e.unit}`:""}`;
+  if(e.domain==="lock")return String(e.state).toLowerCase()==="locked"?"Locked":"Unlocked";
+  if(e.domain==="cover")return entityIsOn(e)?"Open":"Closed";
+  if(e.domain==="scene")return "Activate";
+  return entityIsOn(e)?"On":"Off";
+}
+async function connectHomeAssistant(event){
+  event.preventDefault();
+  const form=event.currentTarget,data=Object.fromEntries(new FormData(form));
+  $("haDialogError").textContent="";
+  try{
+    const state=await api("/api/integrations/homeAssistant/config",{method:"POST",body:JSON.stringify({baseUrl:data.baseUrl,token:data.token})});
+    profile.addOns.smartHome={...profile.addOns.smartHome,...state,error:""};
+    profile.widgets.smartHome.visible=true;saveProfile();form.reset();$("haDialog").close();
+    applyAvailability();renderAddOns();renderWidgetSettings();
+    await loadHomeAssistant();showView("homekit");setMessage("Home Assistant connected.");
+  }catch(error){$("haDialogError").textContent=error.message;}
+}
+async function loadHomeAssistant(){
+  if(!connected("smartHome")){renderHomeKit();return;}
+  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();}
+  catch(error){$("homekitStatus").textContent=error.message;}
+}
+async function toggleEntity(id){
+  const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
+  let service;
+  if(e.domain==="lock")service=String(e.state).toLowerCase()==="locked"?"lock.unlock":"lock.lock";
+  else if(e.domain==="cover")service=entityIsOn(e)?"cover.close_cover":"cover.open_cover";
+  else if(e.domain==="scene")service="scene.turn_on";
+  else service=`${e.domain}.toggle`;
+  try{await api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data:{entity_id:id}})});setTimeout(loadHomeAssistant,500);}
+  catch(error){setMessage(error.message,true);}
+}
+function renderHomeKit(){
+  const grid=$("homekitGrid");if(!grid)return;
+  const status=$("homekitStatus"),connectBtn=$("homekitConnect");
+  if(connectBtn){connectBtn.hidden=false;connectBtn.textContent=connected("smartHome")?"Disconnect":"Connect Home Assistant";}
+  if(!connected("smartHome")){
+    if(status)status.textContent=addOnInstalled("smartHome")?"Connect your Home Assistant server":"Install Smart Home from Add-ons";
+    grid.innerHTML=`<div class="homekit-empty"><p>Connect Home Assistant to control lights, climate, locks and scenes from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Connect Home Assistant</button></div>`;
+    $("homekitConnectCta")?.addEventListener("click",()=>connectAddOn("smartHome"));
+    return;
+  }
+  if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
+  if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
+  const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
+  const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain));
+  const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
+  grid.innerHTML=sorted.map(e=>{const on=entityIsOn(e),act=interactive.has(e.domain);return `<button type="button" class="ha-tile ${on?"is-on":""}" ${act?`data-ha-toggle="${esc(e.id)}"`:"disabled"}><span>${esc(e.name)}</span><strong>${esc(haValue(e))}</strong></button>`;}).join("");
+  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",()=>toggleEntity(btn.dataset.haToggle)));
+}
 
 function openPhotoDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open("reflect-os-photos",1);request.onupgradeneeded=()=>request.result.createObjectStore("photos",{keyPath:"id"});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 function photoStore(mode="readonly"){return photoDb.transaction("photos",mode).objectStore("photos");}
@@ -255,7 +313,7 @@ async function playSpotifyTrack(track){if(!track?.uri)return;$("spotifyDeviceSta
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("addons");openAddOnDetail("spotify");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){const required={calendar:"googleCalendar",music:"spotify",weather:"weather",homekit:"smartHome"}[name];if(required&&!addOnInstalled(required)){name="addons";setMessage(`Install ${addOnRegistry[required].name} to open that screen.`);}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});if(name==="music")ensureSpotifySdk();if(reveal)showNav();}
+function showView(name,reveal=true){const required={calendar:"googleCalendar",music:"spotify",weather:"weather",homekit:"smartHome"}[name];if(required&&!addOnInstalled(required)){name="addons";setMessage(`Install ${addOnRegistry[required].name} to open that screen.`);}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});if(name==="music")ensureSpotifySdk();if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -276,10 +334,11 @@ $("weatherSearchForm")?.addEventListener("submit",searchWeatherLocations);
 document.querySelectorAll("[data-calendar-view]").forEach(button=>button.addEventListener("click",()=>{calendarView=button.dataset.calendarView;document.querySelectorAll("[data-calendar-view]").forEach(item=>item.classList.toggle("is-selected",item===button));renderCalendarPage();}));
 document.querySelectorAll("[data-task-filter]").forEach(button=>button.addEventListener("click",()=>{taskFilter=button.dataset.taskFilter;document.querySelectorAll("[data-task-filter]").forEach(item=>item.classList.toggle("is-selected",item===button));renderTaskPage();}));
 $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask").addEventListener("click",()=>openItemDialog("task"));$("itemForm").addEventListener("submit",addItem);$("cancelItem").addEventListener("click",()=>$("itemDialog").close());
+$("haForm")?.addEventListener("submit",connectHomeAssistant);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>connected("smartHome")?disconnectAddOn("smartHome"):connectAddOn("smartHome"));
 document.querySelectorAll("[data-home-device]").forEach(button=>button.addEventListener("click",()=>button.classList.toggle("is-active")));
 $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout").addEventListener("click",()=>{const account=profile.account,addOns=profile.addOns,photos=profile.photos;profile=clone(defaultProfile);profile.account=account;profile.addOns=addOns;profile.photos=photos;saveProfile();applyProfile();renderHome();renderWidgetSettings();});
 document.addEventListener("mousemove",showNav);document.addEventListener("click",showNav);document.addEventListener("touchstart",event=>{touchStartX=event.changedTouches[0].clientX;longPressTimer=setTimeout(()=>setEditing(true),760);showNav();},{passive:true});document.addEventListener("touchend",event=>{clearTimeout(longPressTimer);const delta=event.changedTouches[0].clientX-touchStartX;if(Math.abs(delta)<70||isEditing)return;const visible=[...navItems].filter(item=>!item.hidden);const active=visible.findIndex(item=>item.classList.contains("is-active"));showView(visible[Math.max(0,Math.min(visible.length-1,active+(delta<0?1:-1)))].dataset.view);},{passive:true});
 document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if(event.key==="Escape"){if(addonDetail.open)addonDetail.close();else setEditing(false);return;}if(event.key.toLowerCase()==="e"){setEditing(!isEditing);return;}const view={h:"home",c:"calendar",t:"tasks",m:"music",w:"weather",s:"homekit",a:"addons",",":"settings"}[event.key.toLowerCase()];if(view)showView(view);});
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
 boot();
