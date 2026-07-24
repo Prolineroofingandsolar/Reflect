@@ -242,6 +242,22 @@
     </div>
   </section>
 
+  <dialog class="setup-wizard" id="setupWizard" aria-labelledby="setupTitle">
+    <div class="setup-inner">
+      <p class="eyebrow" id="setupEyebrow">Welcome</p>
+      <h2 id="setupTitle">Set up Reflect OS</h2>
+      <div id="setupBody"></div>
+      <div class="setup-progress" id="setupProgress" aria-hidden="true"></div>
+      <footer class="setup-actions">
+        <button class="ghost-button" id="setupSkip" type="button">Skip setup</button>
+        <div class="setup-nav">
+          <button class="ghost-button" id="setupBack" type="button" hidden>Back</button>
+          <button class="store-action" id="setupNext" type="button">Continue</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
+
   <dialog class="item-dialog" id="haDialog" aria-labelledby="haDialogTitle">
     <form id="haForm">
       <header>

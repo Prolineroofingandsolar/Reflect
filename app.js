@@ -340,5 +340,69 @@ $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout")
 document.addEventListener("mousemove",showNav);document.addEventListener("click",showNav);document.addEventListener("touchstart",event=>{touchStartX=event.changedTouches[0].clientX;longPressTimer=setTimeout(()=>setEditing(true),760);showNav();},{passive:true});document.addEventListener("touchend",event=>{clearTimeout(longPressTimer);const delta=event.changedTouches[0].clientX-touchStartX;if(Math.abs(delta)<70||isEditing)return;const visible=[...navItems].filter(item=>!item.hidden);const active=visible.findIndex(item=>item.classList.contains("is-active"));showView(visible[Math.max(0,Math.min(visible.length-1,active+(delta<0?1:-1)))].dataset.view);},{passive:true});
 document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if(event.key==="Escape"){if(addonDetail.open)addonDetail.close();else setEditing(false);return;}if(event.key.toLowerCase()==="e"){setEditing(!isEditing);return;}const view={h:"home",c:"calendar",t:"tasks",m:"music",w:"weather",s:"homekit",a:"addons",",":"settings"}[event.key.toLowerCase()];if(view)showView(view);});
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
+const setupKey="reflect-os-setup-complete-v1";
+let setupStep=0,setupLocation=null,setupError="";
+const setupSteps=["welcome","location","account"];
+function needsSetup(){return !localStorage.getItem(setupKey)&&!profile.account.signedIn;}
+function openSetup(){setupStep=0;setupLocation=null;setupError="";renderSetup();const d=$("setupWizard");if(!d.open)d.showModal();}
+function completeSetup(){localStorage.setItem(setupKey,"1");$("setupWizard").close();}
+function renderSetup(){
+  const body=$("setupBody"),eyebrow=$("setupEyebrow"),title=$("setupTitle"),step=setupSteps[setupStep];
+  $("setupBack").hidden=setupStep===0;
+  $("setupProgress").innerHTML=setupSteps.map((_,i)=>`<span class="${i===setupStep?"is-active":""}"></span>`).join("");
+  if(step==="welcome"){
+    eyebrow.textContent="Welcome";title.textContent="Make this mirror yours";$("setupNext").textContent="Continue";
+    body.innerHTML=`<p class="setup-help">A few quick choices and your mirror is ready.</p>
+      <label class="setup-field"><span>Your name</span><input id="setupName" autocomplete="given-name" value="${esc(profile.personName==="Will"?"":profile.personName)}" placeholder="e.g. Alex"></label>
+      <label class="setup-field"><span>Greeting</span><input id="setupGreeting" value="${esc(profile.greetingPrefix)}"></label>
+      <label class="setup-field"><span>Clock</span><select id="setupClock"><option value="24"${profile.clockFormat==="24"?" selected":""}>24 hour</option><option value="12"${profile.clockFormat==="12"?" selected":""}>12 hour</option></select></label>`;
+  } else if(step==="location"){
+    eyebrow.textContent="Weather";title.textContent="Where are you?";$("setupNext").textContent="Continue";
+    body.innerHTML=`<p class="setup-help">Used for local weather. You can change it later in Settings.</p>
+      <form class="weather-search" id="setupLocationForm" role="search"><input id="setupLocationInput" type="search" placeholder="Town or city" autocomplete="off"><button class="store-action" type="submit">Search</button></form>
+      <div class="setup-location-results" id="setupLocationResults" aria-live="polite">${setupLocation?`<p class="setup-selected">Selected: <strong>${esc(setupLocation.label)}</strong></p>`:`<p class="setup-help">Currently: ${esc(profile.weather.place)}</p>`}</div>`;
+    $("setupLocationForm").addEventListener("submit",searchSetupLocations);
+  } else {
+    eyebrow.textContent="Account";title.textContent="Protect this mirror";$("setupNext").textContent="Finish";
+    body.innerHTML=`<p class="setup-help">Create a device account so your add-ons and layout are saved. Your PIN stays on this mirror.</p>
+      <label class="setup-field"><span>Name</span><input id="setupAccountName" autocomplete="name" value="${esc($("setupName")?.value||(profile.personName==="Will"?"":profile.personName))}"></label>
+      <label class="setup-field"><span>Email</span><input id="setupAccountEmail" inputmode="email" autocomplete="email" placeholder="you@example.com"></label>
+      <label class="setup-field"><span>PIN (4–8 digits)</span><input id="setupAccountPin" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="8" placeholder="••••"></label>
+      ${setupError?`<p class="ha-error">${esc(setupError)}</p>`:""}`;
+  }
+}
+async function searchSetupLocations(event){
+  event.preventDefault();const query=$("setupLocationInput").value.trim(),results=$("setupLocationResults");
+  if(query.length<2)return;results.innerHTML='<p class="setup-help">Finding places…</p>';
+  try{const data=await api(`/api/weather/locations?q=${encodeURIComponent(query)}`);
+    if(!data.locations?.length){results.innerHTML='<p class="setup-help">No matching places found.</p>';return;}
+    results.innerHTML=data.locations.map((place,index)=>`<button type="button" class="setup-location-option" data-setup-location="${index}"><strong>${esc(place.name)}</strong><span>${esc([place.region,place.country].filter(Boolean).join(", "))}</span></button>`).join("");
+    results.querySelectorAll("[data-setup-location]").forEach(button=>button.addEventListener("click",()=>{const place=data.locations[Number(button.dataset.setupLocation)];setupLocation={label:[place.name,place.region].filter(Boolean).join(", "),place};results.innerHTML=`<p class="setup-selected">Selected: <strong>${esc(setupLocation.label)}</strong></p>`;}));
+  }catch(error){results.innerHTML=`<p class="setup-help">${esc(error.message)}</p>`;}
+}
+function applyWelcomeStep(){
+  const name=$("setupName")?.value.trim();if(name)profile.personName=name;
+  const greeting=$("setupGreeting")?.value.trim();if(greeting)profile.greetingPrefix=greeting;
+  const clock=$("setupClock")?.value;if(clock)profile.clockFormat=clock;
+  saveProfile();applyProfile();updateClock();
+}
+function applyLocationStep(){if(setupLocation){const p=setupLocation.place;profile.weather={place:setupLocation.label,latitude:p.latitude,longitude:p.longitude};saveProfile();applyProfile();loadWeather();}}
+async function setupAdvance(){
+  const step=setupSteps[setupStep];
+  if(step==="welcome"){applyWelcomeStep();setupStep=1;renderSetup();return;}
+  if(step==="location"){applyLocationStep();setupStep=2;renderSetup();return;}
+  // account step
+  setupError="";
+  const name=$("setupAccountName").value.trim(),email=$("setupAccountEmail").value.trim(),pin=$("setupAccountPin").value.trim();
+  if(!name||!/^\S+@\S+\.\S+$/.test(email)||!/^\d{4,8}$/.test(pin)){setupError="Enter your name, a valid email and a 4–8 digit PIN.";renderSetup();return;}
+  $("accountName").value=name;$("accountEmail").value=email;$("accountPin").value=pin;
+  await signIn();
+  if(!profile.account.signedIn){setupError="That PIN is not correct for this email, or the account is locked. Try again.";renderSetup();return;}
+  completeSetup();showView(profile.defaultView,false);
+}
+$("setupNext")?.addEventListener("click",setupAdvance);
+$("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
+$("setupSkip")?.addEventListener("click",completeSetup);
+
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
 boot();

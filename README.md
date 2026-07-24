@@ -11,6 +11,14 @@ Use either option:
 
 The Mac launcher starts the local Reflect server and opens Reflect OS in a Chrome app-style window when Google Chrome is installed. Node.js is required. If Chrome is not installed, it opens the interface with the default browser.
 
+## First-Run Setup
+
+The first time Reflect OS opens on a device, a short setup wizard collects your name and greeting, your weather location, and creates a device account with a PIN. You can skip it and configure everything later in Settings.
+
+## Smart Home (Home Assistant)
+
+Install the Smart Home add-on, then connect your Home Assistant server URL and a long-lived access token (Home Assistant → your profile → Security → Long-lived access tokens). Lights, switches, fans, locks, covers, and scenes become controllable from the mirror, with climate and sensor readouts. The token is encrypted on the device and never sent to the browser.
+
 ## Customise
 
 - Press `E` to unlock layout edit mode.
