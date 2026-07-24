@@ -440,6 +440,18 @@ async function api(req, res, url) {
       return json(res, response.status, { error: result.error?.message || "Spotify could not move playback to this mirror." });
     } catch (error) { return json(res, 502, { error: error.message }); }
   }
+  if (url.pathname === "/api/spotify/playlists" && req.method === "GET") {
+    try {
+      const token = await refreshProvider(session.account, "spotify");
+      writeState(session.state);
+      if (!token) return json(res, 409, { error: "Connect Spotify first." });
+      const response = await fetch("https://api.spotify.com/v1/me/playlists?limit=30", { headers: { Authorization: `Bearer ${token.access_token}` } });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return json(res, response.status, { error: result.error?.message || "Your playlists could not be loaded." });
+      const playlists = (result.items || []).filter((item) => item && item.uri).map((item) => ({ id: item.id, uri: item.uri, name: item.name || "Playlist", owner: item.owner?.display_name || "", tracks: item.tracks?.total ?? 0, artwork: item.images?.find((image) => (image.width || 0) <= 300)?.url || item.images?.at(-1)?.url || "" }));
+      return json(res, 200, { playlists });
+    } catch (error) { return json(res, 502, { error: error.message }); }
+  }
   const playerMatch = url.pathname.match(/^\/api\/spotify\/player\/(play|pause|next|previous)$/);
   if (playerMatch && req.method === "POST") {
     try {
@@ -451,7 +463,7 @@ async function api(req, res, url) {
       const input = await body(req);
       const spotifyUrl = new URL(`https://api.spotify.com/v1/me/player/${action}`);
       if (input.deviceId) spotifyUrl.searchParams.set("device_id", input.deviceId);
-      const requestBody = action === "play" && input.uri ? JSON.stringify({ uris: [input.uri] }) : undefined;
+      const requestBody = action === "play" ? (input.uri ? JSON.stringify({ uris: [input.uri] }) : input.contextUri ? JSON.stringify({ context_uri: input.contextUri }) : undefined) : undefined;
       const response = await fetch(spotifyUrl, { method, headers: { Authorization: `Bearer ${token.access_token}`, ...(requestBody ? { "Content-Type": "application/json" } : {}) }, body: requestBody });
       if (response.ok) return json(res, 200, { ok: true });
       const result = await response.json().catch(() => ({}));

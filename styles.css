@@ -1851,3 +1851,31 @@ input[type="color"] {
   display: flex;
   gap: 10px;
 }
+
+/* Spotify playlist picker */
+.playlist-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  cursor: pointer;
+}
+.playlist-item small {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+.playlist-item.is-default {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.playlist-empty {
+  color: rgba(255, 255, 255, 0.5);
+  list-style: none;
+}

@@ -33,7 +33,7 @@ const defaultProfile = {
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
-  spotify:{widgetMode:"standard",deviceName:"Living room speaker",autoplay:false,playlist:"Mirror Focus"},
+  spotify:{widgetMode:"standard",deviceName:"Living room speaker",autoplay:false,playlist:"Mirror Focus",playlistUri:""},
   photos:{ids:[],interval:15,fit:"cover",order:"ordered",brightness:82},
   widgets:{clock:{visible:true,zone:"top-left",size:"large",priority:1},weather:{visible:true,zone:"top-right",size:"medium",priority:1},calendar:{visible:false,zone:"bottom-left",size:"medium",priority:1},tasks:{visible:true,zone:"bottom-right",size:"medium",priority:1},music:{visible:false,zone:"bottom-centre",size:"medium",priority:1},smartHome:{visible:false,zone:"middle-right",size:"small",priority:1},photos:{visible:false,zone:"centre",size:"large",priority:1}}
 };
@@ -60,6 +60,7 @@ let touchStartX = 0, isEditing = false, selectedWidget = "clock", calendarView =
 let photoRecords = [], photoUrls = new Map();
 let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
 let homeAssistantEntities = [];
+let spotifyPlaylists = [];
 
 function clone(value){ return JSON.parse(JSON.stringify(value)); }
 function esc(value){ return String(value ?? "").replace(/[&<>'"]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]); }
@@ -310,10 +311,34 @@ function renderSpotifyRecent(){const recent=$("spotifyRecent");if(!recent)return
 async function loadSpotifyRecent(){if(!connected("spotify"))return;const recent=$("spotifyRecent");if(recent)recent.innerHTML='<p class="empty-state">Loading recent tracks…</p>';try{const data=await api("/api/spotify/recent");spotifyRecentTracks=data.tracks||[];spotifyNeedsRecentPermission=false;renderSpotifyRecent();renderSpotifyPage();}catch(error){spotifyNeedsRecentPermission=error.message.includes("Reconnect Spotify");if(recent)recent.innerHTML=`<p class="empty-state">${esc(error.message)}</p>`;if(spotifyNeedsRecentPermission)$("spotifySetupText").textContent=error.message;renderSpotifyPage();}}
 function waitForSpotifyDevice(timeout=12000){ensureSpotifySdk();return new Promise((resolve,reject)=>{const started=Date.now();const timer=setInterval(()=>{if(spotifyPlayer&&spotifyDeviceId){clearInterval(timer);resolve();}else if(Date.now()-started>=timeout){clearInterval(timer);reject(new Error("The Spotify player did not become ready. Reopen Reflect OS and try again."));}},150);});}
 async function playSpotifyTrack(track){if(!track?.uri)return;$("spotifyDeviceStatus").textContent=`Starting ${track.name}`;try{if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/play",{method:"POST",body:JSON.stringify({uri:track.uri,deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;sampleData.track={...track,artist:track.artists,progress:0,playing:true};renderSpotifyPage();renderHome();setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
+async function loadSpotifyPlaylists(){
+  if(!connected("spotify"))return;
+  try{const data=await api("/api/spotify/playlists");spotifyPlaylists=data.playlists||[];renderSpotifyPlaylists();}
+  catch{}
+}
+function renderSpotifyPlaylists(){
+  const list=$("spotifyPlaylists");if(!list)return;
+  if(!connected("spotify")){list.innerHTML='<li class="playlist-empty">Connect Spotify to see your playlists.</li>';return;}
+  if(!spotifyPlaylists.length){list.innerHTML='<li class="playlist-empty">No playlists found yet.</li>';return;}
+  list.innerHTML=spotifyPlaylists.map((p,i)=>`<li><button type="button" class="playlist-item ${p.uri===profile.spotify.playlistUri?"is-default":""}" data-playlist="${i}"><span>${esc(p.name)}</span><small>${p.tracks} track${p.tracks===1?"":"s"}${p.uri===profile.spotify.playlistUri?" · default":""}</small></button></li>`).join("");
+  list.querySelectorAll("[data-playlist]").forEach(btn=>btn.addEventListener("click",()=>playSpotifyContext(spotifyPlaylists[Number(btn.dataset.playlist)].uri)));
+}
+async function playSpotifyContext(uri){
+  if(!uri)return;
+  $("spotifyDeviceStatus").textContent="Starting music on this mirror";
+  try{
+    if(spotifyPlayer)await spotifyPlayer.activateElement();
+    await waitForSpotifyDevice();
+    await spotifyPlayer.activateElement();
+    await api("/api/spotify/player/play",{method:"POST",body:JSON.stringify({contextUri:uri,deviceId:spotifyDeviceId})});
+    spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";profile.spotify.playlist=spotifyPlaylists.find(p=>p.uri===uri)?.name||profile.spotify.playlist;profile.spotify.playlistUri=uri;saveProfile();
+    renderSpotifyPlaylists();setTimeout(loadSpotify,600);
+  }catch(error){$("spotifyDeviceStatus").textContent=error.message;}
+}
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
-async function runSpotifyAction(action){if(!connected("spotify")){showView("addons");openAddOnDetail("spotify");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
+async function runSpotifyAction(action){if(!connected("spotify")){showView("addons");openAddOnDetail("spotify");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){const required={calendar:"googleCalendar",music:"spotify",weather:"weather",homekit:"smartHome"}[name];if(required&&!addOnInstalled(required)){name="addons";setMessage(`Install ${addOnRegistry[required].name} to open that screen.`);}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});if(name==="music")ensureSpotifySdk();if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
+function showView(name,reveal=true){const required={calendar:"googleCalendar",music:"spotify",weather:"weather",homekit:"smartHome"}[name];if(required&&!addOnInstalled(required)){name="addons";setMessage(`Install ${addOnRegistry[required].name} to open that screen.`);}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -404,5 +429,5 @@ $("setupNext")?.addEventListener("click",setupAdvance);
 $("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
 $("setupSkip")?.addEventListener("click",completeSetup);
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();renderHome();renderWidgetSettings();renderAddOns();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);}
 boot();
