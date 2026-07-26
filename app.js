@@ -412,6 +412,7 @@ let bootVersion=null;
 async function watchForUpdates(){
   try{const health=await api("/api/health");
     if(!health.version)return;
+    const label=$("appVersion");if(label)label.textContent=`v${health.version}`;
     if(bootVersion===null){bootVersion=health.version;return;}
     if(health.version!==bootVersion){
       if(isEditing||sampleData.track.playing)return; // never interrupt editing or playback; apply on a later idle poll
