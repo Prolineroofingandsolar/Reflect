@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%239d7cff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.8.1">
+  <link rel="stylesheet" href="styles.css?v=0.9.0">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -20,7 +20,6 @@
     <button class="nav-item" data-view="music">Music</button>
     <button class="nav-item" data-view="weather">Weather</button>
     <button class="nav-item" data-view="homekit">Smart Home</button>
-    <button class="nav-item" data-view="addons">Add-ons</button>
     <button class="nav-item" data-view="settings">Settings</button>
   </nav>
 
@@ -186,62 +185,100 @@
     <div class="homekit-grid" id="homekitGrid"></div>
   </section>
 
-  <section class="view page-view" id="view-addons" aria-label="Add-ons">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow" id="accountStatus">Reflect account</p>
-        <h1>Add-on Store</h1>
-      </div>
-      <button class="ghost-button" id="signOutAccount" type="button">Sign out</button>
-    </header>
-    <section class="account-panel" id="accountPanel" aria-label="Reflect account">
-      <div>
-        <h2>Your Reflect account</h2>
-        <p id="accountHelp">Sign in to install and manage add-ons for this mirror.</p>
-      </div>
-      <label><span>Name</span><input id="accountName" autocomplete="name"></label>
-      <label><span>Email</span><input id="accountEmail" autocomplete="email" inputmode="email"></label>
-      <label><span>Device PIN</span><input id="accountPin" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4-8 digits"></label>
-      <button class="ghost-button" id="signInAccount" type="button">Create or sign in</button>
-    </section>
-    <div class="store-toolbar">
-      <div class="tabs" role="tablist" aria-label="Add-on store views">
-        <button class="is-selected" type="button" data-store-tab="discover">Discover</button>
-        <button type="button" data-store-tab="installed">Installed</button>
-      </div>
-      <label class="store-search"><span class="sr-only">Search add-ons</span><input id="addonSearch" type="search" placeholder="Search add-ons"></label>
-      <label class="store-category"><span class="sr-only">Category</span><select id="addonCategory"><option value="all">All categories</option><option value="productivity">Productivity</option><option value="media">Media</option><option value="home">Home</option><option value="utilities">Utilities</option><option value="personal">Personal</option></select></label>
-    </div>
-    <p class="store-message" id="storeMessage" role="status"></p>
-    <div class="addons-grid" id="addonsGrid" aria-label="Add-on catalogue"></div>
-    <dialog class="addon-detail" id="addonDetail" aria-labelledby="addonDetailTitle">
-      <button class="dialog-close" id="closeAddonDetail" type="button" aria-label="Close">&times;</button>
-      <div id="addonDetailContent"></div>
-    </dialog>
-  </section>
-
-  <section class="view page-view" id="view-settings" aria-label="Settings">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">Reflect OS <span id="appVersion"></span></p>
+  <section class="view page-view settings-view" id="view-settings" aria-label="Settings">
+    <div class="settings-root" id="settingsRoot">
+      <header class="settings-hero">
         <h1>Settings</h1>
-      </div>
-    </header>
-    <div class="settings-list">
-      <label><span>Person name</span><input id="personName" autocomplete="name"></label>
-      <label><span>Greeting</span><input id="greetingPrefix"></label>
-      <label><span>Clock format</span><select id="clockFormat"><option value="24">24 hour</option><option value="12">12 hour</option></select></label>
-      <label><span>Accent colour</span><input id="accentColor" type="color"></label>
-      <label><span>Default screen</span><select id="defaultView"><option value="home">Home</option><option value="calendar">Calendar</option><option value="tasks">Tasks</option><option value="music">Music</option><option value="weather">Weather</option><option value="homekit">Smart Home</option><option value="addons">Add-ons</option></select></label>
-      <label><span>Navigation timeout</span><select id="navTimeout"><option value="2400">2.4 seconds</option><option value="3600">3.6 seconds</option><option value="5200">5.2 seconds</option><option value="8000">8 seconds</option></select></label>
-      <label><span>Weather location</span><input id="weatherPlace" readonly></label>
-      <label><span>Spotify widget</span><select id="spotifyWidgetMode"><option value="minimal">Minimal</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></label>
-      <label><span>Spotify device</span><input id="spotifyDevice"></label>
-      <label><span>Spotify autoplay</span><select id="spotifyAutoplay"><option value="false">Off</option><option value="true">On</option></select></label>
-      <label><span>Affirmations style</span><select id="affirmationMode"><option value="affirmations">Affirmations</option><option value="quotes">Inspirational quotes</option><option value="both">Affirmations &amp; quotes</option><option value="custom">My own only</option></select></label>
-      <label><span>Affirmation change</span><select id="affirmationInterval"><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option><option value="300">Every 5 minutes</option></select></label>
-      <label class="stacked-field"><span>Your affirmations</span><textarea id="affirmationCustom" rows="4" placeholder="One line per affirmation or quote"></textarea></label>
-      <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
+        <p class="eyebrow">Reflect OS <span id="appVersion"></span></p>
+      </header>
+      <button class="settings-account-row" type="button" data-settings-open="profile">
+        <span class="sa-avatar" id="accountInitial">R</span>
+        <span class="sa-text"><strong id="accountStatus">Reflect account</strong><small id="accountSubtitle">Sign in to sync this mirror</small></span>
+        <span class="chev" aria-hidden="true">&rsaquo;</span>
+      </button>
+      <div class="settings-groups" id="settingsGroups"></div>
+      <p class="store-message" id="storeMessage" role="status"></p>
+    </div>
+
+    <div class="settings-detail" id="settingsDetail" hidden>
+      <header class="settings-detail-head">
+        <button class="settings-back" id="settingsBack" type="button">&lsaquo; Settings</button>
+        <h2 id="settingsDetailTitle">General</h2>
+      </header>
+
+      <section class="settings-page" data-page="profile" hidden>
+        <p class="settings-help" id="accountHelp">Create or sign in with a 4 to 8 digit device PIN. Your PIN never leaves this mirror.</p>
+        <div class="settings-group">
+          <label class="settings-field"><span>Name</span><input id="accountName" autocomplete="name"></label>
+          <label class="settings-field"><span>Email</span><input id="accountEmail" autocomplete="email" inputmode="email"></label>
+          <label class="settings-field"><span>Device PIN</span><input id="accountPin" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4-8 digits"></label>
+        </div>
+        <div class="settings-actions">
+          <button class="store-action" id="signInAccount" type="button">Create or sign in</button>
+          <button class="ghost-button" id="signOutAccount" type="button" hidden>Sign out</button>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="general" hidden>
+        <div class="settings-group">
+          <label class="settings-field"><span>Person name</span><input id="personName" autocomplete="name"></label>
+          <label class="settings-field"><span>Greeting</span><input id="greetingPrefix"></label>
+          <label class="settings-field"><span>Clock format</span><select id="clockFormat"><option value="24">24 hour</option><option value="12">12 hour</option></select></label>
+          <label class="settings-field"><span>Accent colour</span><input id="accentColor" type="color"></label>
+          <label class="settings-field"><span>Default screen</span><select id="defaultView"><option value="home">Home</option><option value="calendar">Calendar</option><option value="tasks">Tasks</option><option value="music">Music</option><option value="weather">Weather</option><option value="homekit">Smart Home</option></select></label>
+          <label class="settings-field"><span>Navigation timeout</span><select id="navTimeout"><option value="2400">2.4 seconds</option><option value="3600">3.6 seconds</option><option value="5200">5.2 seconds</option><option value="8000">8 seconds</option></select></label>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="home" hidden>
+        <p class="settings-help">Show, hide and place each widget. Or press E on the mirror to arrange them on screen.</p>
+        <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
+      </section>
+
+      <section class="settings-page" data-page="photos" hidden>
+        <div id="photosPage"></div>
+      </section>
+
+      <section class="settings-page" data-page="affirmations" hidden>
+        <div class="settings-group">
+          <label class="settings-field"><span>Style</span><select id="affirmationMode"><option value="affirmations">Affirmations</option><option value="quotes">Inspirational quotes</option><option value="both">Affirmations &amp; quotes</option><option value="custom">My own only</option></select></label>
+          <label class="settings-field"><span>Change every</span><select id="affirmationInterval"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="300">5 minutes</option></select></label>
+        </div>
+        <label class="settings-field stacked-field"><span>Your affirmations</span><textarea id="affirmationCustom" rows="5" placeholder="One line per affirmation or quote"></textarea></label>
+      </section>
+
+      <section class="settings-page" data-page="weather" hidden>
+        <div class="settings-group">
+          <label class="settings-field"><span>Location</span><input id="weatherPlace" readonly></label>
+        </div>
+        <div class="settings-actions"><button class="ghost-button" id="settingsWeatherOpen" type="button">Change location</button></div>
+      </section>
+
+      <section class="settings-page" data-page="music" hidden>
+        <div class="settings-group">
+          <label class="settings-field"><span>Widget style</span><select id="spotifyWidgetMode"><option value="minimal">Minimal</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></label>
+          <label class="settings-field"><span>Device name</span><input id="spotifyDevice"></label>
+          <label class="settings-field"><span>Autoplay</span><select id="spotifyAutoplay"><option value="false">Off</option><option value="true">On</option></select></label>
+        </div>
+      </section>
+
+      <section class="settings-page" data-page="connections" hidden>
+        <p class="settings-help">Sign in to your accounts so the mirror can show live data. Connections stay encrypted on this device.</p>
+        <div id="connectionsList" class="connections-list"></div>
+      </section>
+
+      <section class="settings-page" data-page="phone" hidden>
+        <p class="settings-help">Control this mirror from your phone. Coming in a future update &mdash; you&rsquo;ll scan a code on the glass and adjust everything from your phone on the same Wi-Fi.</p>
+        <div class="settings-group"><div class="settings-field"><span>Phone control</span><span class="settings-value muted">Coming soon</span></div></div>
+      </section>
+
+      <section class="settings-page" data-page="about" hidden>
+        <div class="settings-group">
+          <div class="settings-field"><span>Version</span><span class="settings-value" id="aboutVersion">&mdash;</span></div>
+          <div class="settings-field"><span>Mirror</span><span class="settings-value">Reflect OS</span></div>
+        </div>
+        <p class="settings-help">Reflect OS runs on this device. Weather, tasks, photos and smart-home control keep working even offline.</p>
+      </section>
     </div>
   </section>
 
@@ -294,6 +331,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.8.1"></script>
+<script src="app.js?v=0.9.0"></script>
 </body>
 </html>
