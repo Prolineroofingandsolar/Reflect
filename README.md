@@ -15,6 +15,10 @@ The Mac launcher starts the local Reflect server and opens Reflect OS in a Chrom
 
 The first time Reflect OS opens on a device, a short setup wizard collects your name and greeting, your weather location, and creates a device account with a PIN. You can skip it and configure everything later in Settings.
 
+## Affirmations
+
+Add an Affirmations widget to the home screen from Settings or edit mode. Choose built-in affirmations, inspirational quotes, both, or your own lines, and set how often they rotate. Custom lines are entered one per line in Settings and stay on the device.
+
 ## Smart Home (Home Assistant)
 
 Install the Smart Home add-on, then connect your Home Assistant server URL and a long-lived access token (Home Assistant → your profile → Security → Long-lived access tokens). Lights, switches, fans, locks, covers, and scenes become controllable from the mirror, with climate and sensor readouts. The token is encrypted on the device and never sent to the browser.

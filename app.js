@@ -10,6 +10,7 @@ const baseWidgets = {
   weather: { label: "Weather", addOn: "weather" },
   calendar: { label: "Calendar", addOn: "googleCalendar" },
   tasks: { label: "Tasks", addOn: null },
+  affirmations: { label: "Affirmations", addOn: null },
   music: { label: "Spotify", addOn: "spotify" },
   smartHome: { label: "Smart Home", addOn: "smartHome" },
   photos: { label: "Photos", addOn: "photos" }
@@ -34,8 +35,9 @@ const defaultProfile = {
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
   spotify:{widgetMode:"standard",deviceName:"Living room speaker",autoplay:false,playlist:"Mirror Focus",playlistUri:""},
+  affirmations:{mode:"affirmations",interval:30,custom:[]},
   photos:{ids:[],interval:15,fit:"cover",order:"ordered",brightness:82},
-  widgets:{clock:{visible:true,zone:"top-left",size:"large",priority:1},weather:{visible:true,zone:"top-right",size:"medium",priority:1},calendar:{visible:false,zone:"bottom-left",size:"medium",priority:1},tasks:{visible:true,zone:"bottom-right",size:"medium",priority:1},music:{visible:false,zone:"bottom-centre",size:"medium",priority:1},smartHome:{visible:false,zone:"middle-right",size:"small",priority:1},photos:{visible:false,zone:"centre",size:"large",priority:1}}
+  widgets:{clock:{visible:true,zone:"top-left",size:"large",priority:1},weather:{visible:true,zone:"top-right",size:"medium",priority:1},calendar:{visible:false,zone:"bottom-left",size:"medium",priority:1},tasks:{visible:true,zone:"bottom-right",size:"medium",priority:1},affirmations:{visible:false,zone:"bottom-centre",size:"medium",priority:2},music:{visible:false,zone:"bottom-centre",size:"medium",priority:1},smartHome:{visible:false,zone:"middle-right",size:"small",priority:1},photos:{visible:false,zone:"centre",size:"large",priority:1}}
 };
 const sampleData = {
   events:[],
@@ -44,6 +46,28 @@ const sampleData = {
   track:{title:"Nothing playing",artist:"Spotify",album:"Open Spotify on a device",progress:0,playing:false}
 };
 let weatherData = null;
+const affirmationLibrary = {
+  affirmations:[
+    "You are capable of amazing things.","Today is full of possibility.","Breathe in calm, breathe out tension.",
+    "You are exactly where you need to be.","Small steps still move you forward.","You have everything you need within you.",
+    "Be proud of how far you've come.","Your presence makes a difference.","Choose progress over perfection.",
+    "You are worthy of good things.","Make today count.","You are stronger than you think.",
+    "Kindness starts with yourself.","Trust yourself — you've got this.","Every day is a fresh start."
+  ],
+  quotes:[
+    {t:"The best way to predict the future is to create it.",a:"Peter Drucker"},
+    {t:"What you do today can improve all your tomorrows.",a:"Ralph Marston"},
+    {t:"It always seems impossible until it's done.",a:"Nelson Mandela"},
+    {t:"Well done is better than well said.",a:"Benjamin Franklin"},
+    {t:"The secret of getting ahead is getting started.",a:"Mark Twain"},
+    {t:"Do what you can, with what you have, where you are.",a:"Theodore Roosevelt"},
+    {t:"Little things make big days.",a:"Isabel Marant"},
+    {t:"Quality is not an act, it is a habit.",a:"Aristotle"},
+    {t:"Simplicity is the ultimate sophistication.",a:"Leonardo da Vinci"},
+    {t:"Act as if what you do makes a difference. It does.",a:"William James"}
+  ]
+};
+let affirmationIndex = 0, affirmationTimer;
 
 const $ = (id) => document.getElementById(id);
 const views = document.querySelectorAll(".view");
@@ -76,6 +100,8 @@ function mergeProfile(saved={}){
   next.spotify={...defaultProfile.spotify,...(saved.spotify||{})};
   next.weather={...defaultProfile.weather,...(saved.weather||{})};
   next.photos={...defaultProfile.photos,...(saved.photos||{})};
+  next.affirmations={...defaultProfile.affirmations,...(saved.affirmations||{})};
+  if(!Array.isArray(next.affirmations.custom))next.affirmations.custom=[];
   next.addOns=clone(defaultAddOnState);
   Object.keys(addOnRegistry).forEach((id)=>{
     const old=saved.addOns?.[id]||{};
@@ -116,7 +142,11 @@ function applyAvailability(){
 function applyProfile(){
   const rgb=hexToRgb(profile.accentColor); document.documentElement.style.setProperty("--accent",profile.accentColor); document.documentElement.style.setProperty("--accent-rgb",rgb); document.documentElement.style.setProperty("--accent-soft",`rgba(${rgb}, .18)`);
   Object.entries(profileInputs).forEach(([key,input])=>{ if(!input)return; input.value=key==="spotifyWidgetMode"?profile.spotify.widgetMode:key==="spotifyDevice"?profile.spotify.deviceName:key==="spotifyAutoplay"?String(profile.spotify.autoplay):key==="weatherPlace"?profile.weather.place:key==="weatherLatitude"?profile.weather.latitude:key==="weatherLongitude"?profile.weather.longitude:String(profile[key]); });
-  $("accountName").value=profile.account.name; $("accountEmail").value=profile.account.email; applyAvailability();
+  $("accountName").value=profile.account.name; $("accountEmail").value=profile.account.email;
+  if($("affirmationMode"))$("affirmationMode").value=profile.affirmations.mode;
+  if($("affirmationInterval"))$("affirmationInterval").value=String(profile.affirmations.interval);
+  if($("affirmationCustom")&&document.activeElement!==$("affirmationCustom"))$("affirmationCustom").value=(profile.affirmations.custom||[]).join("\n");
+  applyAvailability();
 }
 function hexToRgb(hex){ const clean=String(hex).replace("#","");const value=parseInt(clean.length===3?clean.split("").map(c=>c+c).join(""):clean,16);return Number.isNaN(value)?"157, 124, 255":`${value>>16&255}, ${value>>8&255}, ${value&255}`; }
 function weatherLabel(code){if(code===0)return"Clear";if(code<=3)return"Partly cloudy";if(code<=48)return"Foggy";if(code<=57)return"Drizzle";if(code<=67)return"Rain";if(code<=77)return"Snow";if(code<=82)return"Showers";if(code<=86)return"Snow showers";return"Thunderstorms";}
@@ -131,6 +161,7 @@ function renderWidget(id){
   if(id==="calendar"){const events=sortedEvents().slice(0,3).map(eventDisplay);return `<h2>Upcoming</h2><ol class="event-list compact-list">${events.length?events.map(e=>`<li><time>${esc(e.time)}</time><span>${esc(e.title)}</span>${e.location?`<small>${esc(e.location)}</small>`:""}</li>`).join(""):`<li class="quiet-empty">No upcoming events</li>`}</ol>`;}
   if(id==="tasks") return `<h2>Today</h2><ul class="task-list compact-list">${sampleData.tasks.filter(task=>task.when==="Today").slice(0,4).map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-home-task-index="${index}" aria-label="Mark ${esc(task.title)} complete"></button><span>${esc(task.title)}</span><small>${esc(task.category)}</small></li>`;}).join("")||`<li class="quiet-empty">Nothing due today</li>`}</ul>`;
   if(id==="music") return `<div class="now-playing spotify-widget"><div><p class="song">${esc(sampleData.track.title)}</p><p class="artist">${esc(sampleData.track.artist)}</p></div><div class="mini-controls"><button data-spotify-action="previous" aria-label="Previous track">‹</button><button class="play" data-spotify-action="play" aria-label="Play or pause">${sampleData.track.playing?"Ⅱ":"▶"}</button><button data-spotify-action="next" aria-label="Next track">›</button></div><div class="progress"><span style="width:${sampleData.track.progress}%"></span></div></div>`;
+  if(id==="affirmations"){const pool=affirmationPool();if(!pool.length)return `<p class="affirmation-empty">Add your own affirmations in Settings.</p>`;const item=pool[affirmationIndex%pool.length];return typeof item==="string"?`<p class="affirmation-text">${esc(item)}</p>`:`<blockquote class="affirmation-quote"><p>${esc(item.t)}</p><cite>${esc(item.a)}</cite></blockquote>`;}
   if(id==="smartHome"){const items=connected("smartHome")&&homeAssistantEntities.length?homeAssistantEntities.filter(e=>["light","switch","climate","lock"].includes(e.domain)).slice(0,4).map(e=>`${e.name} · ${haValue(e)}`):sampleData.smartHome;return `<h2>Smart Home</h2><div class="smart-summary">${items.map(item=>`<p>${esc(item)}</p>`).join("")}</div>`;}
   if(id==="photos"){
     const record=photoRecords[currentPhoto%Math.max(photoRecords.length,1)];
@@ -147,7 +178,7 @@ function renderHome(){
     const editControls=isPhotoBackdrop?`<div class="widget-edit photo-backdrop-edit"><span>Full-screen backdrop</span><button type="button" data-edit="hide">Hide</button></div>`:`<div class="widget-edit"><select data-edit="zone" aria-label="Widget zone">${zoneOptions(config.zone)}</select><select data-edit="size" aria-label="Widget size">${sizeOptions(config.size)}</select><button type="button" data-edit="hide">Hide</button></div>`;
     article.innerHTML=`<div class="widget-body">${renderWidget(id)}</div>${editControls}`; zone.append(article);
   });
-  bindWidgetControls(); updateClock(); restartSlideshow();
+  bindWidgetControls(); updateClock(); restartSlideshow(); restartAffirmations();
 }
 function zoneOptions(selected){return zones.map(([value,label])=>`<option value="${value}" ${value===selected?"selected":""}>${label}</option>`).join("");}
 function sizeOptions(selected){return ["small","medium","large"].map(value=>`<option value="${value}" ${value===selected?"selected":""}>${value}</option>`).join("");}
@@ -163,6 +194,15 @@ function renderWidgetSettings(){
   widgetSettings.querySelectorAll("[data-widget-zone]").forEach(select=>select.addEventListener("change",()=>{profile.widgets[select.dataset.widgetZone].zone=select.value;saveProfile();renderHome();}));
   widgetSettings.querySelectorAll("[data-widget-size]").forEach(select=>select.addEventListener("change",()=>{profile.widgets[select.dataset.widgetSize].size=select.value;saveProfile();renderHome();}));
 }
+function affirmationPool(){
+  const mode=profile.affirmations.mode;
+  const custom=(profile.affirmations.custom||[]).filter(line=>String(line).trim());
+  if(mode==="custom")return custom;
+  if(mode==="quotes")return [...affirmationLibrary.quotes,...custom];
+  if(mode==="both")return [...affirmationLibrary.affirmations,...affirmationLibrary.quotes,...custom];
+  return [...affirmationLibrary.affirmations,...custom];
+}
+function restartAffirmations(){clearInterval(affirmationTimer);const pool=affirmationPool();if(profile.widgets.affirmations?.visible&&pool.length>1)affirmationTimer=setInterval(()=>{affirmationIndex=(affirmationIndex+1)%pool.length;const el=document.querySelector('[data-widget="affirmations"] .widget-body');if(el)el.innerHTML=renderWidget("affirmations");},Math.max(8,Number(profile.affirmations.interval)||30)*1000);}
 function restartSlideshow(){clearInterval(slideshowTimer);if(profile.widgets.photos.visible&&photoRecords.length>1)slideshowTimer=setInterval(()=>{currentPhoto=profile.photos.order==="shuffle"?Math.floor(Math.random()*photoRecords.length):(currentPhoto+1)%photoRecords.length;renderHome();},profile.photos.interval*1000);}
 function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
 
@@ -359,6 +399,9 @@ $("weatherSearchForm")?.addEventListener("submit",searchWeatherLocations);
 document.querySelectorAll("[data-calendar-view]").forEach(button=>button.addEventListener("click",()=>{calendarView=button.dataset.calendarView;document.querySelectorAll("[data-calendar-view]").forEach(item=>item.classList.toggle("is-selected",item===button));renderCalendarPage();}));
 document.querySelectorAll("[data-task-filter]").forEach(button=>button.addEventListener("click",()=>{taskFilter=button.dataset.taskFilter;document.querySelectorAll("[data-task-filter]").forEach(item=>item.classList.toggle("is-selected",item===button));renderTaskPage();}));
 $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask").addEventListener("click",()=>openItemDialog("task"));$("itemForm").addEventListener("submit",addItem);$("cancelItem").addEventListener("click",()=>$("itemDialog").close());
+$("affirmationMode")?.addEventListener("change",()=>{affirmationIndex=0;profile.affirmations.mode=$("affirmationMode").value;saveProfile();renderHome();});
+$("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.interval=Number($("affirmationInterval").value);saveProfile();restartAffirmations();});
+$("affirmationCustom")?.addEventListener("input",()=>{affirmationIndex=0;profile.affirmations.custom=$("affirmationCustom").value.split("\n").map(line=>line.trim()).filter(Boolean);saveProfile();renderHome();});
 $("haForm")?.addEventListener("submit",connectHomeAssistant);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>connected("smartHome")?disconnectAddOn("smartHome"):connectAddOn("smartHome"));
 document.querySelectorAll("[data-home-device]").forEach(button=>button.addEventListener("click",()=>button.classList.toggle("is-active")));
 $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout").addEventListener("click",()=>{const account=profile.account,addOns=profile.addOns,photos=profile.photos;profile=clone(defaultProfile);profile.account=account;profile.addOns=addOns;profile.photos=photos;saveProfile();applyProfile();renderHome();renderWidgetSettings();});

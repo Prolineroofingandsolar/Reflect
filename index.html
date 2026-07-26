@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%239d7cff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.7.0">
+  <link rel="stylesheet" href="styles.css?v=0.8.0">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -238,6 +238,9 @@
       <label><span>Spotify widget</span><select id="spotifyWidgetMode"><option value="minimal">Minimal</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></label>
       <label><span>Spotify device</span><input id="spotifyDevice"></label>
       <label><span>Spotify autoplay</span><select id="spotifyAutoplay"><option value="false">Off</option><option value="true">On</option></select></label>
+      <label><span>Affirmations style</span><select id="affirmationMode"><option value="affirmations">Affirmations</option><option value="quotes">Inspirational quotes</option><option value="both">Affirmations &amp; quotes</option><option value="custom">My own only</option></select></label>
+      <label><span>Affirmation change</span><select id="affirmationInterval"><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option><option value="300">Every 5 minutes</option></select></label>
+      <label class="stacked-field"><span>Your affirmations</span><textarea id="affirmationCustom" rows="4" placeholder="One line per affirmation or quote"></textarea></label>
       <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
     </div>
   </section>
@@ -291,6 +294,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.7.0"></script>
+<script src="app.js?v=0.8.0"></script>
 </body>
 </html>
