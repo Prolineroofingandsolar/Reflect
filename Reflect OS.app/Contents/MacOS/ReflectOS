@@ -1,0 +1,37 @@
+#!/bin/zsh
+# Reflect OS double-click launcher.
+# Lives at <repo>/Reflect OS.app/Contents/MacOS/ReflectOS — the repo root is three levels up.
+emulate -L zsh
+set -u
+
+APP_ROOT="${0:A:h}/../../.."
+APP_ROOT="${APP_ROOT:A}"
+URL="http://127.0.0.1:4173/index.html"
+
+# Make sure Node is reachable (Finder launches don't load your shell PATH).
+if ! command -v node >/dev/null 2>&1; then
+  for p in /opt/homebrew/bin /usr/local/bin "$HOME/.nvm/versions/node"/*/bin(N); do
+    [ -x "$p/node" ] && export PATH="$p:$PATH"
+  done
+fi
+if ! command -v node >/dev/null 2>&1; then
+  osascript -e 'display dialog "Reflect OS needs Node.js.\n\nInstall the LTS version from nodejs.org, then open Reflect OS again." buttons {"OK"} default button "OK" with title "Reflect OS" with icon caution'
+  exit 1
+fi
+
+mkdir -p "$APP_ROOT/data"
+
+# Always restart the server so updates and config changes take effect.
+OLD_PID="$(lsof -tiTCP:4173 -sTCP:LISTEN 2>/dev/null)"
+[ -n "$OLD_PID" ] && kill $OLD_PID 2>/dev/null && sleep 0.5
+
+cd "$APP_ROOT"
+node server.js >"$APP_ROOT/data/server.log" 2>&1 &
+sleep 1
+
+# Open in a clean Chrome app window if available, else the default browser.
+if [ -d "/Applications/Google Chrome.app" ]; then
+  open -na "Google Chrome" --args --app="$URL" --window-size=1366,768 --disable-infobars
+else
+  open "$URL"
+fi

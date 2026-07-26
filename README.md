@@ -4,12 +4,13 @@ Reflect OS is a modular smart mirror program for Mac preview and Raspberry Pi de
 
 ## View On Mac
 
-Use either option:
+Easiest: **double-click `Reflect OS.app`** in this folder. It starts the local server and opens the mirror in a Chrome app-style window (or your default browser). No Terminal needed.
 
-- Open `../Reflect OS.app`
-- Run `scripts/launch-mac.command`
+The first time you open it after downloading, macOS may say it's from an unidentified developer — **right-click the app → Open → Open** once to allow it (this app is not yet code-signed).
 
-The Mac launcher starts the local Reflect server and opens Reflect OS in a Chrome app-style window when Google Chrome is installed. Node.js is required. If Chrome is not installed, it opens the interface with the default browser.
+Alternative: run `scripts/launch-mac.command`.
+
+Node.js must be installed (from nodejs.org). The app will prompt you if it's missing.
 
 ## First-Run Setup
 
