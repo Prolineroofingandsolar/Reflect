@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23a98bff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.2">
+  <link rel="stylesheet" href="styles.css?v=0.9.3">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -185,20 +185,89 @@
     <div class="homekit-grid" id="homekitGrid"></div>
   </section>
 
-  <section class="view page-view settings-view" id="view-settings" aria-label="Settings">
-    <div class="settings-root" id="settingsRoot">
-      <header class="settings-hero">
-        <h1>Settings</h1>
-        <p class="eyebrow">Reflect OS <span id="appVersion"></span></p>
+  <section class="view settings-view" id="view-settings" aria-label="Settings">
+   <div class="settings-shell">
+    <aside class="settings-sidebar" aria-label="Reflect navigation">
+      <div class="side-brand"><span class="side-ring" aria-hidden="true"></span>Reflect</div>
+      <nav class="side-nav">
+        <button class="side-item" data-view="home"><span class="si-ic">⌂</span>Home</button>
+        <button class="side-item" data-view="calendar"><span class="si-ic">▦</span>Calendar</button>
+        <button class="side-item" data-view="tasks"><span class="si-ic">✓</span>Tasks</button>
+        <button class="side-item" data-view="music"><span class="si-ic">♪</span>Music</button>
+        <button class="side-item" data-view="weather"><span class="si-ic">☁</span>Weather</button>
+        <button class="side-item" data-view="homekit"><span class="si-ic">⌂</span>Smart Home</button>
+      </nav>
+      <button class="side-item is-active" data-view="settings"><span class="si-ic">⚙</span>Settings</button>
+    </aside>
+
+    <div class="settings-main">
+     <div class="settings-root" id="settingsRoot">
+      <header class="dash-top">
+        <div class="dash-title"><h1>Settings</h1><p class="eyebrow">Reflect OS <span id="appVersion"></span></p></div>
+        <label class="dash-search"><span aria-hidden="true">⌕</span><input id="settingsSearch" type="search" placeholder="Search settings" autocomplete="off"></label>
+        <div class="dash-chips">
+          <span class="chip"><i class="dot ok"></i>Mirror online</span>
+          <span class="chip"><i aria-hidden="true">◍</i> <span id="chipLocation">London</span></span>
+          <span class="chip"><i aria-hidden="true">☀</i> <span id="chipBrightness">80%</span></span>
+        </div>
       </header>
-      <button class="settings-account-row" type="button" data-settings-open="profile">
+
+      <button class="dash-account" type="button" data-settings-open="profile">
         <span class="sa-avatar" id="accountInitial">R</span>
-        <span class="sa-text"><strong id="accountStatus">Reflect account</strong><small id="accountSubtitle">Sign in to sync this mirror</small></span>
-        <span class="chev" aria-hidden="true">&rsaquo;</span>
+        <span class="sa-text"><strong id="settingsGreeting">Welcome to Reflect</strong><small id="accountSubtitle">Sign in to sync this mirror <span id="accountSynced" class="synced" hidden>✓</span></small></span>
+        <span class="dash-account-cta">Manage account <span class="chev">›</span></span>
       </button>
-      <div class="settings-groups" id="settingsGroups"></div>
       <p class="store-message" id="storeMessage" role="status"></p>
-    </div>
+
+      <div class="dash-grid">
+        <section class="dash-card">
+          <h2 class="dash-card-title"><span class="dc-ic">◲</span> Mirror</h2>
+          <div class="dash-control slider-control">
+            <div class="dc-row"><span>Brightness</span><span id="brightnessVal">80%</span></div>
+            <input id="brightnessRange" type="range" min="30" max="100" step="1">
+          </div>
+          <div class="dash-control slider-control warm">
+            <div class="dc-row"><span>Colour temperature</span><span id="warmthVal">Neutral</span></div>
+            <input id="warmthRange" type="range" min="0" max="100" step="1">
+          </div>
+          <div class="dash-control">
+            <span>Appearance</span>
+            <div class="segmented" id="appearanceSeg">
+              <button type="button" data-appearance="light">Light</button>
+              <button type="button" data-appearance="auto">Auto</button>
+              <button type="button" data-appearance="dark">Dark</button>
+            </div>
+          </div>
+          <div class="dash-control">
+            <span>Night mode</span>
+            <button class="switch" id="nightMode" type="button" role="switch" aria-checked="false"><i></i></button>
+          </div>
+        </section>
+
+        <section class="dash-card">
+          <div class="dash-card-head"><h2 class="dash-card-title"><span class="dc-ic">▦</span> Home screen</h2><button class="pill-btn" id="dashEditLayout" type="button">✎ Edit layout</button></div>
+          <div class="home-preview" id="homePreview">
+            <div class="hp-time">8:30</div>
+            <div class="hp-sub">Good evening, Will</div>
+          </div>
+          <div class="dash-widgets" id="dashWidgets"></div>
+        </section>
+
+        <section class="dash-card">
+          <h2 class="dash-card-title"><span class="dc-ic">⇄</span> Services</h2>
+          <div class="dash-rows" id="dashServices"></div>
+        </section>
+
+        <section class="dash-card">
+          <h2 class="dash-card-title"><span class="dc-ic">◇</span> System</h2>
+          <div class="dash-rows">
+            <button class="dash-row" type="button" data-settings-open="privacy"><span class="dr-ic">⛨</span><span class="dr-lab">Privacy &amp; security</span><span class="chev">›</span></button>
+            <button class="dash-row" type="button" id="dashUpdate"><span class="dr-ic">⭳</span><span class="dr-lab">Software update</span><span class="dr-val" id="updateStatus">Up to date</span><span class="chev">›</span></button>
+            <button class="dash-row" type="button" data-settings-open="about"><span class="dr-ic">ⓘ</span><span class="dr-lab">About</span><span class="chev">›</span></button>
+          </div>
+        </section>
+      </div>
+     </div>
 
     <div class="settings-detail" id="settingsDetail" hidden>
       <header class="settings-detail-head">
@@ -280,6 +349,17 @@
         </div>
         <p class="settings-help">Reflect OS runs on this device. Weather, tasks, photos and smart-home control keep working even offline.</p>
       </section>
+
+      <section class="settings-page" data-page="privacy" hidden>
+        <p class="settings-help">Your data stays on this mirror. Photos never leave the device, provider tokens are encrypted here, and there is no cloud account.</p>
+        <div class="settings-group">
+          <div class="settings-field"><span>Data storage</span><span class="settings-value">On this device</span></div>
+          <div class="settings-field"><span>Provider tokens</span><span class="settings-value">Encrypted locally</span></div>
+          <div class="settings-field"><span>Cloud account</span><span class="settings-value">None</span></div>
+        </div>
+      </section>
+      </div>
+     </div>
     </div>
   </section>
 
@@ -332,6 +412,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.2"></script>
+<script src="app.js?v=0.9.3"></script>
 </body>
 </html>

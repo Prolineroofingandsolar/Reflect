@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"light",
+  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"light", brightness:80, warmth:0, nightMode:false,
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -140,8 +140,10 @@ function applyAvailability(){
 }
 function applyProfile(){
   const rgb=hexToRgb(profile.accentColor); document.documentElement.style.setProperty("--accent",profile.accentColor); document.documentElement.style.setProperty("--accent-rgb",rgb); document.documentElement.style.setProperty("--accent-soft",`rgba(${rgb}, .18)`);
-  document.body.classList.toggle("theme-light",(profile.theme||"light")!=="dark");
-  if($("appearanceMode"))$("appearanceMode").value=profile.theme||"light";
+  const effectiveDark=(profile.theme==="dark")||(profile.theme==="auto"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.body.classList.toggle("theme-light",!effectiveDark);
+  if($("appearanceMode"))$("appearanceMode").value=profile.theme==="dark"?"dark":"light";
+  applyDisplay();
   Object.entries(profileInputs).forEach(([key,input])=>{ if(!input)return; input.value=key==="spotifyWidgetMode"?profile.spotify.widgetMode:key==="spotifyDevice"?profile.spotify.deviceName:key==="spotifyAutoplay"?String(profile.spotify.autoplay):key==="weatherPlace"?profile.weather.place:key==="weatherLatitude"?profile.weather.latitude:key==="weatherLongitude"?profile.weather.longitude:String(profile[key]); });
   $("accountName").value=profile.account.name; $("accountEmail").value=profile.account.email;
   if($("affirmationMode"))$("affirmationMode").value=profile.affirmations.mode;
@@ -208,14 +210,23 @@ function restartSlideshow(){clearInterval(slideshowTimer);if(profile.widgets.pho
 function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
 
 function statusFor(id){const state=profile.addOns[id];if(state.error)return "Needs attention";if(!state.installed)return "Available";if(addOnRegistry[id].requiresConnection&&!connected(id))return "Connection required";return connected(id)?"Connected":"Installed";}
+function greetingWord(){const h=new Date().getHours();return h<12?"morning":h<18?"afternoon":"evening";}
 function renderAccount(){
-  const signed=profile.account.signedIn,name=(profile.account.name||"Reflect").trim();
-  const status=$("accountStatus");if(status)status.textContent=signed?name:"Reflect account";
-  const sub=$("accountSubtitle");if(sub)sub.textContent=signed?(profile.account.email||"Signed in"):"Sign in to sync this mirror";
-  const avatar=$("accountInitial");if(avatar)avatar.textContent=(name[0]||"R").toUpperCase();
+  const signed=profile.account.signedIn,name=(profile.account.name||"").trim()||profile.personName;
+  const greet=$("settingsGreeting");if(greet)greet.textContent=signed?`Good ${greetingWord()}, ${name.split(" ")[0]}`:"Welcome to Reflect";
+  const sub=$("accountSubtitle");if(sub)sub.firstChild&&(sub.firstChild.textContent=signed?"Your mirror is synced ":"Sign in to sync this mirror ");
+  const synced=$("accountSynced");if(synced)synced.hidden=!signed;
+  const avatar=$("accountInitial");if(avatar)avatar.textContent=(name.trim()[0]||"R").toUpperCase();
   const help=$("accountHelp");if(help)help.textContent=signed?"This mirror is protected. Your connections and layout are saved to this device account.":"Create or sign in with a 4 to 8 digit device PIN. Your PIN never leaves this mirror.";
   const signIn=$("signInAccount");if(signIn)signIn.textContent=signed?"Update profile":"Create or sign in";
   const signOut=$("signOutAccount");if(signOut)signOut.hidden=!signed;
+}
+function applyDisplay(){
+  const b=Math.max(30,Number(profile.brightness)||80)/100;
+  const warm=(Number(profile.warmth)||0)/100;
+  let bright=0.45+0.55*b, sepia=warm*0.5;
+  if(profile.nightMode){bright*=0.7;sepia=Math.max(sepia,0.5);}
+  document.documentElement.style.setProperty("--display-filter",`brightness(${bright.toFixed(2)}) sepia(${sepia.toFixed(2)})`);
 }
 
 const settingsCategories=[
@@ -229,7 +240,7 @@ const settingsCategories=[
   {page:"phone",label:"Phone control",icon:"▢",group:2},
   {page:"about",label:"About",icon:"ⓘ",group:2}
 ];
-const settingsTitles={profile:"Account",general:"General",home:"Home Layout",photos:"Photos",affirmations:"Affirmations",weather:"Weather",music:"Music",connections:"Connections",phone:"Phone control",about:"About"};
+const settingsTitles={profile:"Account",general:"General",home:"Home Layout",photos:"Photos",affirmations:"Affirmations",weather:"Weather",music:"Music",connections:"Connections",phone:"Phone control",about:"About",privacy:"Privacy & security"};
 let settingsPage=null;
 function settingsRowValue(page){
   if(page==="general")return esc(profile.personName);
@@ -238,12 +249,35 @@ function settingsRowValue(page){
   if(page==="connections"){const n=["spotify","googleCalendar","smartHome"].filter(id=>connected(id)).length;return n?`${n} connected`:"";}
   return "";
 }
+function warmthLabel(w){return w<15?"Neutral":w<45?"Warm":w<75?"Warmer":"Candle";}
 function renderSettings(){
   renderAccount();
-  const groups=$("settingsGroups");if(!groups)return;
-  const byGroup={};settingsCategories.forEach(c=>{(byGroup[c.group]=byGroup[c.group]||[]).push(c);});
-  groups.innerHTML=Object.keys(byGroup).map(g=>`<div class="settings-group nav">${byGroup[g].map(c=>`<button class="settings-nav-row" type="button" data-settings-open="${c.page}"><span class="sn-icon">${c.icon}</span><span class="sn-label">${esc(c.label)}</span><span class="sn-value">${esc(settingsRowValue(c.page))}</span><span class="chev" aria-hidden="true">›</span></button>`).join("")}</div>`).join("");
-  groups.querySelectorAll("[data-settings-open]").forEach(b=>b.addEventListener("click",()=>openSettingsPage(b.dataset.settingsOpen)));
+  const loc=$("chipLocation");if(loc)loc.textContent=profile.weather.place;
+  const cb=$("chipBrightness");if(cb)cb.textContent=`${profile.brightness||80}%`;
+  const br=$("brightnessRange");if(br)br.value=profile.brightness||80;
+  const bv=$("brightnessVal");if(bv)bv.textContent=`${profile.brightness||80}%`;
+  const wr=$("warmthRange");if(wr)wr.value=profile.warmth||0;
+  const wv=$("warmthVal");if(wv)wv.textContent=warmthLabel(profile.warmth||0);
+  const seg=$("appearanceSeg");if(seg)seg.querySelectorAll("[data-appearance]").forEach(b=>b.classList.toggle("on",b.dataset.appearance===(profile.theme||"light")));
+  const nm=$("nightMode");if(nm){nm.classList.toggle("on",!!profile.nightMode);nm.setAttribute("aria-checked",String(!!profile.nightMode));}
+  renderDashWidgets();renderDashServices();
+}
+function renderDashWidgets(){
+  const el=$("dashWidgets");if(!el)return;
+  const items=[["photos","Photos","▤"],["weather","Weather","☁"],["music","Music","♪"],["affirmations","Affirmations","✦"]];
+  el.innerHTML=items.map(([id,label,ic])=>{const w=profile.widgets[id];const on=w&&w.visible;return `<div class="dash-wrow"><span class="dw-ic">${ic}</span><span class="dw-lab">${label}</span><button class="switch ${on?"on":""}" type="button" role="switch" aria-checked="${!!on}" data-dash-widget="${id}"><i></i></button></div>`;}).join("");
+  el.querySelectorAll("[data-dash-widget]").forEach(b=>b.addEventListener("click",()=>{const id=b.dataset.dashWidget;if(!profile.widgets[id])return;profile.widgets[id].visible=!profile.widgets[id].visible;saveProfile();renderHome();renderWidgetSettings();renderDashWidgets();}));
+}
+function renderDashServices(){
+  const el=$("dashServices");if(!el)return;
+  const rows=[
+    {label:"Spotify",ic:"♪",val:connected("spotify")?"Connected":"Not connected",ok:connected("spotify"),page:"connections"},
+    {label:"Calendar",ic:"▦",val:connected("googleCalendar")?"Connected":"Not connected",ok:connected("googleCalendar"),page:"connections"},
+    {label:"Smart Home",ic:"⌂",val:connected("smartHome")?`${homeAssistantEntities.length} devices`:"Not connected",ok:connected("smartHome"),page:"connections"},
+    {label:"Phone control",ic:"▢",val:"Coming soon",ok:false,page:"phone"}
+  ];
+  el.innerHTML=rows.map(r=>`<button class="dash-row" type="button" data-open-page="${r.page}"><span class="dr-ic">${r.ic}</span><span class="dr-lab">${esc(r.label)}</span><span class="dr-val ${r.ok?"ok":""}">${r.ok?'<i class="dot ok"></i>':""}${esc(r.val)}</span><span class="chev">›</span></button>`).join("");
+  el.querySelectorAll("[data-open-page]").forEach(b=>b.addEventListener("click",()=>openSettingsPage(b.dataset.openPage)));
 }
 function openSettingsPage(page){
   settingsPage=page;
@@ -420,7 +454,7 @@ async function playSpotifyContext(uri){
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("settings");openSettingsPage("connections");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
+function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -434,7 +468,16 @@ Object.entries(profileInputs).forEach(([key,input])=>input?.addEventListener("in
 navItems.forEach(item=>item.addEventListener("click",()=>showView(item.dataset.view)));
 $("signInAccount").addEventListener("click",signIn);$("signOutAccount").addEventListener("click",signOut);
 $("settingsBack")?.addEventListener("click",closeSettingsPage);
-$("appearanceMode")?.addEventListener("change",()=>{profile.theme=$("appearanceMode").value;saveProfile();applyProfile();renderHome();});
+$("appearanceMode")?.addEventListener("change",()=>{profile.theme=$("appearanceMode").value;saveProfile();applyProfile();renderHome();renderSettings();});
+document.querySelectorAll(".side-item").forEach(i=>i.addEventListener("click",()=>showView(i.dataset.view)));
+document.querySelectorAll("[data-settings-open]").forEach(b=>b.addEventListener("click",()=>openSettingsPage(b.dataset.settingsOpen)));
+$("brightnessRange")?.addEventListener("input",()=>{profile.brightness=Number($("brightnessRange").value);const v=`${profile.brightness}%`;$("brightnessVal").textContent=v;if($("chipBrightness"))$("chipBrightness").textContent=v;saveProfile();applyDisplay();});
+$("warmthRange")?.addEventListener("input",()=>{profile.warmth=Number($("warmthRange").value);$("warmthVal").textContent=warmthLabel(profile.warmth);saveProfile();applyDisplay();});
+document.querySelectorAll("#appearanceSeg [data-appearance]").forEach(b=>b.addEventListener("click",()=>{profile.theme=b.dataset.appearance;saveProfile();applyProfile();renderSettings();renderHome();}));
+$("nightMode")?.addEventListener("click",()=>{profile.nightMode=!profile.nightMode;saveProfile();applyDisplay();renderSettings();});
+$("dashEditLayout")?.addEventListener("click",()=>{showView("home");setEditing(true);});
+$("dashUpdate")?.addEventListener("click",()=>{const s=$("updateStatus");if(s)s.textContent="Checking…";watchForUpdates().then(()=>{if(s)s.textContent=appVersionText?`v${appVersionText}`:"Up to date";});});
+$("settingsSearch")?.addEventListener("input",()=>{const q=$("settingsSearch").value.trim().toLowerCase();document.querySelectorAll(".dash-card").forEach(c=>{c.hidden=Boolean(q)&&!c.textContent.toLowerCase().includes(q);});});
 $("settingsWeatherOpen")?.addEventListener("click",()=>showView("weather"));
 $("spotifyConnect").addEventListener("click",()=>connected("spotify")&&!spotifyNeedsPlaybackPermission&&!spotifyNeedsRecentPermission?disconnectAddOn("spotify"):connectConnection("spotify"));$("spotifyOpenAddons").addEventListener("click",()=>{showView("settings");openSettingsPage("connections");});$("spotifyPrevious").addEventListener("click",()=>runSpotifyAction("previous"));$("spotifyNext").addEventListener("click",()=>runSpotifyAction("next"));$("spotifyPlay").addEventListener("click",()=>runSpotifyAction("play"));
 $("spotifyUseDevice").addEventListener("click",playSpotifyHere);
