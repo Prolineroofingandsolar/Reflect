@@ -2030,3 +2030,74 @@ input[type="color"] {
 .connection-meta small.ok { color: var(--meadow); }
 .connection-icon { color: var(--accent); }
 .sn-icon { color: var(--accent); }
+
+/* ===== Light theme (default; Dark is for actual mirror glass) ===== */
+body.theme-light {
+  --text: rgba(22, 22, 30, 0.96);
+  --muted: rgba(22, 22, 30, 0.56);
+  --faint: rgba(0, 0, 0, 0.24);
+  --line: rgba(0, 0, 0, 0.12);
+  --accent: #7a5cff;
+  --accent-rgb: 122, 92, 255;
+  --accent-soft: rgba(122, 92, 255, 0.13);
+  background: #eef0f6;
+  color: var(--text);
+}
+body.theme-light .time { color: rgba(22, 22, 30, 0.82); }
+body.theme-light .quick-nav {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  backdrop-filter: saturate(1.2) blur(8px);
+}
+/* card-like surfaces */
+body.theme-light .settings-account-row,
+body.theme-light .settings-group,
+body.theme-light .settings-group.nav,
+body.theme-light .connection-row,
+body.theme-light .card,
+body.theme-light .ha-tile,
+body.theme-light .playlist-item,
+body.theme-light .setup-inner,
+body.theme-light .timeline article,
+body.theme-light .weather-facts > div,
+body.theme-light .weather-hourly article,
+body.theme-light .homekit-grid button,
+body.theme-light .spotify-setup,
+body.theme-light .account-panel {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.09);
+}
+body.theme-light .settings-nav-row { border-top-color: rgba(0, 0, 0, 0.08); }
+body.theme-light .settings-field { border-top-color: rgba(0, 0, 0, 0.08); }
+body.theme-light .settings-nav-row:hover,
+body.theme-light .settings-nav-row:focus-visible { background: rgba(0, 0, 0, 0.035); }
+body.theme-light .connection-icon { background: rgba(0, 0, 0, 0.05); }
+body.theme-light .is-editing .mirror-widget { background: rgba(255, 255, 255, 0.7); }
+/* muted text literals -> dark */
+body.theme-light .settings-hero .eyebrow,
+body.theme-light .sa-text small,
+body.theme-light .sn-value,
+body.theme-light .settings-help,
+body.theme-light .connection-meta small,
+body.theme-light .homekit-empty,
+body.theme-light .ha-help,
+body.theme-light .setup-help,
+body.theme-light .ha-tile span,
+body.theme-light .playlist-item small { color: rgba(22, 22, 30, 0.55); }
+body.theme-light .chev { color: rgba(0, 0, 0, 0.3); }
+body.theme-light .connection-meta small.ok { color: #2fa676; }
+/* strong labels stay dark */
+body.theme-light .settings-field > span:first-child,
+body.theme-light .sn-label { color: rgba(22, 22, 30, 0.9); }
+/* inputs on light */
+body.theme-light input,
+body.theme-light select,
+body.theme-light textarea,
+body.theme-light .settings-field input,
+body.theme-light .settings-field select,
+body.theme-light .settings-field textarea {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.16);
+  color: var(--text);
+}
+body.theme-light .setup-wizard::backdrop { background: rgba(22, 22, 30, 0.5); }

@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600,
+  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"light",
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -140,6 +140,8 @@ function applyAvailability(){
 }
 function applyProfile(){
   const rgb=hexToRgb(profile.accentColor); document.documentElement.style.setProperty("--accent",profile.accentColor); document.documentElement.style.setProperty("--accent-rgb",rgb); document.documentElement.style.setProperty("--accent-soft",`rgba(${rgb}, .18)`);
+  document.body.classList.toggle("theme-light",(profile.theme||"light")!=="dark");
+  if($("appearanceMode"))$("appearanceMode").value=profile.theme||"light";
   Object.entries(profileInputs).forEach(([key,input])=>{ if(!input)return; input.value=key==="spotifyWidgetMode"?profile.spotify.widgetMode:key==="spotifyDevice"?profile.spotify.deviceName:key==="spotifyAutoplay"?String(profile.spotify.autoplay):key==="weatherPlace"?profile.weather.place:key==="weatherLatitude"?profile.weather.latitude:key==="weatherLongitude"?profile.weather.longitude:String(profile[key]); });
   $("accountName").value=profile.account.name; $("accountEmail").value=profile.account.email;
   if($("affirmationMode"))$("affirmationMode").value=profile.affirmations.mode;
@@ -432,6 +434,7 @@ Object.entries(profileInputs).forEach(([key,input])=>input?.addEventListener("in
 navItems.forEach(item=>item.addEventListener("click",()=>showView(item.dataset.view)));
 $("signInAccount").addEventListener("click",signIn);$("signOutAccount").addEventListener("click",signOut);
 $("settingsBack")?.addEventListener("click",closeSettingsPage);
+$("appearanceMode")?.addEventListener("change",()=>{profile.theme=$("appearanceMode").value;saveProfile();applyProfile();renderHome();});
 $("settingsWeatherOpen")?.addEventListener("click",()=>showView("weather"));
 $("spotifyConnect").addEventListener("click",()=>connected("spotify")&&!spotifyNeedsPlaybackPermission&&!spotifyNeedsRecentPermission?disconnectAddOn("spotify"):connectConnection("spotify"));$("spotifyOpenAddons").addEventListener("click",()=>{showView("settings");openSettingsPage("connections");});$("spotifyPrevious").addEventListener("click",()=>runSpotifyAction("previous"));$("spotifyNext").addEventListener("click",()=>runSpotifyAction("next"));$("spotifyPlay").addEventListener("click",()=>runSpotifyAction("play"));
 $("spotifyUseDevice").addEventListener("click",playSpotifyHere);
