@@ -1936,7 +1936,7 @@ input[type="color"] {
 }
 
 /* ===== iOS-style Settings ===== */
-.settings-view { max-width: 720px; margin: 0 auto; width: 100%; }
+.settings-view { width: 100%; }
 .settings-root[hidden], .settings-detail[hidden], .settings-page[hidden] { display: none; }
 
 .settings-hero { margin-bottom: 22px; }
@@ -2189,3 +2189,20 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20p
 .dr-val.ok { color: var(--meadow); }
 
 @media (max-width: 900px) { .dash-grid { grid-template-columns: 1fr; } .settings-sidebar { width: 76px; } .side-item span:not(.si-ic), .side-brand { font-size: 0; } .side-brand { justify-content: center; } }
+
+/* Dashboard polish fixes */
+.dash-card-title { white-space: nowrap; }
+.dash-card-head { gap: 12px; }
+.dash-card-head .dash-card-title { flex: 1; min-width: 0; }
+.pill-btn { flex: none; white-space: nowrap; }
+.dash-account .sa-text strong { white-space: nowrap; }
+.dash-account .sa-text { min-width: 0; }
+.segmented { flex: none; }
+.dash-control { flex-wrap: wrap; }
+.settings-main > .settings-root { max-width: 1440px; }
+.dr-val { white-space: nowrap; }
+.dash-row { gap: 12px; }
+.dr-lab { min-width: 0; }
+
+/* Keep the control panel crisp — brightness/warmth dimming is for the mirror, not settings */
+body.in-settings .reflect-os { filter: none; }
