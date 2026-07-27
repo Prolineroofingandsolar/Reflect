@@ -5,9 +5,14 @@
   --muted: rgba(255, 255, 255, 0.58);
   --faint: rgba(255, 255, 255, 0.2);
   --line: rgba(255, 255, 255, 0.13);
-  --accent: #9d7cff;
-  --accent-rgb: 157, 124, 255;
+  --accent: #a98bff;
+  --accent-rgb: 169, 139, 255;
   --accent-soft: rgba(var(--accent-rgb), 0.18);
+  /* Reflect brand — the Aura */
+  --dawn: #ff9b7b;
+  --meadow: #6fd3a9;
+  --butter: #ffd28a;
+  --aura: linear-gradient(100deg, var(--accent), var(--dawn));
   font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   background: var(--bg);
 }
@@ -1151,11 +1156,12 @@ input[type="color"] {
 
 .store-action {
   min-height: 38px;
-  padding: 0 16px;
-  border: 1px solid rgba(var(--accent-rgb), 0.55);
+  padding: 0 18px;
+  border: none;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--text);
+  background: var(--aura);
+  color: #0b0b0f;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -2019,3 +2025,8 @@ input[type="color"] {
 .connection-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .connection-meta strong { font-weight: 500; }
 .connection-meta small { color: rgba(255,255,255,.5); font-size: 13px; }
+
+/* Reflect brand accents */
+.connection-meta small.ok { color: var(--meadow); }
+.connection-icon { color: var(--accent); }
+.sn-icon { color: var(--accent); }

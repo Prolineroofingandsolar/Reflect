@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#9d7cff", clockFormat:"24", defaultView:"home", navTimeout:3600,
+  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600,
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -259,7 +259,7 @@ function closeSettingsPage(){settingsPage=null;$("settingsDetail").hidden=true;$
 function renderConnections(){
   const list=$("connectionsList");if(!list)return;
   const ids=["spotify","googleCalendar","smartHome"];
-  list.innerHTML=ids.map(id=>{const a=addOnRegistry[id];if(!a)return "";const isConn=connected(id);const state=profile.addOns[id]||{};const status=isConn?"Connected":state.error?"Needs attention":"Not connected";return `<div class="connection-row"><span class="connection-icon">${esc(a.icon)}</span><span class="connection-meta"><strong>${esc(a.name)}</strong><small>${esc(status)}</small></span><button class="ghost-button" type="button" data-conn="${id}">${isConn?"Disconnect":"Connect"}</button></div>`;}).join("");
+  list.innerHTML=ids.map(id=>{const a=addOnRegistry[id];if(!a)return "";const isConn=connected(id);const state=profile.addOns[id]||{};const status=isConn?"Connected":state.error?"Needs attention":"Not connected";return `<div class="connection-row"><span class="connection-icon">${esc(a.icon)}</span><span class="connection-meta"><strong>${esc(a.name)}</strong><small class="${isConn?"ok":""}">${esc(status)}</small></span><button class="ghost-button" type="button" data-conn="${id}">${isConn?"Disconnect":"Connect"}</button></div>`;}).join("");
   list.querySelectorAll("[data-conn]").forEach(b=>b.addEventListener("click",()=>{const id=b.dataset.conn;connected(id)?disconnectAddOn(id):connectConnection(id);}));
 }
 function renderPhotosPage(){
