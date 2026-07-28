@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23a98bff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.7">
+  <link rel="stylesheet" href="styles.css?v=0.9.8">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -98,101 +98,111 @@
     <footer class="cal-foot" id="taskFoot"></footer>
   </section>
 
-  <section class="view page-view music-page" id="view-music" aria-label="Music">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow" id="spotifyStatus">Spotify module</p>
-        <h1>Spotify</h1>
+  <section class="view cal-view mu-view" id="view-music" aria-label="Music">
+    <header class="cal-head">
+      <div class="cal-title">
+        <p class="eyebrow">Now playing</p>
+        <h1>Music</h1>
+        <p class="cal-date" id="spotifyStatus">Spotify</p>
       </div>
-      <div class="page-actions">
-        <button class="ghost-button" id="spotifyUseDevice" type="button" hidden>Play on this mirror</button>
-        <button class="ghost-button" id="spotifyConnect" type="button">Connect Spotify</button>
+      <div class="cal-actions">
+        <form class="mu-search" id="spotifySearchForm" role="search">
+          <label class="sr-only" for="spotifySearch">Search Spotify</label>
+          <input id="spotifySearch" type="search" placeholder="Search Spotify" autocomplete="off">
+        </form>
+        <button class="pill-ghost" id="spotifyDeviceStatus" type="button">Reflect OS Mirror</button>
+        <button class="pill-primary" id="spotifyConnect" type="button">Connect</button>
       </div>
     </header>
-    <section class="spotify-setup" id="spotifySetup" aria-label="Spotify connection setup">
+
+    <section class="cal-panel mu-setup" id="spotifySetup" aria-label="Spotify connection setup">
       <div>
         <h2>Connect Spotify</h2>
-        <p id="spotifySetupText">Sign in to Reflect OS, then connect Spotify from Add-ons. Users only need their normal Spotify account.</p>
+        <p id="spotifySetupText">Sign in to Reflect, then connect Spotify from Settings. You only need your normal Spotify account.</p>
       </div>
-      <div class="setup-actions">
-        <button class="ghost-button" id="spotifyOpenAddons" type="button">Open Add-ons</button>
-      </div>
+      <div class="setup-actions"><button class="pill-ghost" id="spotifyOpenAddons" type="button">Open Settings</button></div>
     </section>
-    <section class="spotify-library" id="spotifyLibrary" aria-label="Choose Spotify music">
-      <div class="spotify-library-head">
-        <div>
-          <p class="eyebrow" id="spotifyDeviceStatus">Preparing Reflect OS player</p>
-          <h2>Choose music</h2>
+
+    <div class="mu-body">
+      <div class="cal-panel mu-player">
+        <div class="mu-art" id="spotifyArt"><img id="spotifyArtwork" alt="" hidden><span class="mu-art-fallback">♪</span></div>
+        <div class="mu-detail">
+          <h2 class="mu-track" id="spotifyTrack">Nothing playing</h2>
+          <p class="mu-artist" id="spotifyArtist">Spotify</p>
+          <p class="mu-album" id="spotifyMeta"></p>
+          <div class="mu-times"><span id="spotifyElapsed">0:00</span><span id="spotifyDuration"></span></div>
+          <div class="mu-progress"><span id="spotifyProgress"></span></div>
+          <div class="mu-controls">
+            <button id="spotifyPrevious" type="button" aria-label="Previous track">⏮</button>
+            <button class="mu-play" id="spotifyPlay" type="button" aria-label="Play or pause">▶</button>
+            <button id="spotifyNext" type="button" aria-label="Next track">⏭</button>
+          </div>
+          <div class="mu-volume">
+            <span aria-hidden="true">🔈</span>
+            <label class="sr-only" for="spotifyVolume">Volume</label>
+            <input id="spotifyVolume" type="range" min="0" max="100" value="42">
+            <button class="pill-ghost mu-device" id="spotifyUseDevice" type="button" hidden>Play on this mirror</button>
+          </div>
         </div>
-        <form class="spotify-search" id="spotifySearchForm" role="search">
-          <label class="sr-only" for="spotifySearch">Search Spotify</label>
-          <input id="spotifySearch" type="search" placeholder="Search songs or artists" autocomplete="off">
-          <button class="store-action" type="submit">Search</button>
-        </form>
       </div>
-      <div class="spotify-results" id="spotifyResults" aria-live="polite">
-        <p class="empty-state">Search for a song to play it through this mirror.</p>
+
+      <div class="mu-side">
+        <div class="cal-panel mu-queue">
+          <p class="cal-card-eyebrow">Your playlists</p>
+          <ol class="playlist" id="spotifyPlaylists"><li class="playlist-empty">Connect Spotify to see your playlists.</li></ol>
+        </div>
+        <div class="cal-panel mu-recent">
+          <div class="mu-recent-head"><p class="cal-card-eyebrow">Recently played</p><button class="mu-link" id="spotifyRefreshRecent" type="button">Refresh</button></div>
+          <div class="mu-results" id="spotifyRecent"><p class="muted">Your recent tracks will appear here.</p></div>
+        </div>
+        <div class="cal-panel mu-results-panel" id="spotifyLibrary">
+          <p class="cal-card-eyebrow">Search results</p>
+          <div class="mu-results" id="spotifyResults"><p class="muted">Search for a song to play it on this mirror.</p></div>
+        </div>
       </div>
-      <section class="spotify-recent" aria-labelledby="spotifyRecentHeading">
-        <div class="spotify-section-heading">
-          <h3 id="spotifyRecentHeading">Recently played</h3>
-          <button class="ghost-button" id="spotifyRefreshRecent" type="button">Refresh</button>
-        </div>
-        <div class="spotify-results" id="spotifyRecent" aria-live="polite">
-          <p class="empty-state">Your recent tracks will appear here.</p>
-        </div>
-      </section>
-    </section>
-    <div class="music-layout">
-      <div class="album-art" id="spotifyArt" aria-label="Album artwork"><img id="spotifyArtwork" alt="" hidden></div>
-      <div class="music-detail">
-        <p class="song large" id="spotifyTrack">Midnight City</p>
-        <p class="artist" id="spotifyArtist">M83</p>
-        <p class="spotify-meta" id="spotifyMeta">Mirror Focus · Living room speaker</p>
-        <div class="player-controls">
-          <button id="spotifyPrevious" type="button" aria-label="Previous track">‹</button>
-          <button class="primary-control" id="spotifyPlay" type="button" aria-label="Play or pause">Ⅱ</button>
-          <button id="spotifyNext" type="button" aria-label="Next track">›</button>
-        </div>
-        <div class="progress large-progress" aria-label="Playback progress"><span id="spotifyProgress"></span></div>
-        <label class="volume">Volume <input id="spotifyVolume" type="range" min="0" max="100" value="42"></label>
-      </div>
-      <ol class="playlist" id="spotifyPlaylists" aria-label="Spotify playlists">
-        <li>Mirror Focus</li>
-      </ol>
     </div>
+    <footer class="cal-foot" id="musicFoot"></footer>
   </section>
 
-  <section class="view page-view" id="view-weather" aria-label="Weather">
-    <header class="page-header weather-header">
-      <div class="weather-title">
+  <section class="view cal-view wx-view" id="view-weather" aria-label="Weather">
+    <header class="cal-head wx-head">
+      <div class="wx-titleblock">
         <p class="eyebrow" id="weatherLocation">London</p>
-        <h1 id="weatherCurrent">Loading weather</h1>
-        <p class="weather-feels" id="weatherFeels">Updating local conditions</p>
+        <div class="wx-now"><span class="wx-temp-big" id="weatherTempBig">--°</span><span class="wx-icon-big" id="weatherIconBig">☀</span><h1 id="weatherCurrent">Loading weather</h1></div>
+        <p class="wx-feels" id="weatherFeels">Updating local conditions</p>
+        <p class="wx-updated" id="weatherUpdated"></p>
       </div>
-      <form class="weather-search" id="weatherSearchForm" role="search">
-        <label class="sr-only" for="weatherSearch">Find a weather location</label>
-        <input id="weatherSearch" type="search" placeholder="Town or city" autocomplete="off">
-        <button class="store-action" type="submit">Find</button>
-      </form>
+      <div class="wx-searchblock">
+        <form class="wx-search" id="weatherSearchForm" role="search">
+          <label class="sr-only" for="weatherSearch">Find a weather location</label>
+          <input id="weatherSearch" type="search" placeholder="Search town or city" autocomplete="off">
+          <button class="pill-primary" type="submit">Find</button>
+        </form>
+        <div class="weather-location-results" id="weatherLocationResults" aria-live="polite"></div>
+      </div>
     </header>
-    <div class="weather-location-results" id="weatherLocationResults" aria-live="polite"></div>
-    <section class="weather-hourly" aria-labelledby="hourlyHeading">
-      <h2 id="hourlyHeading">Hourly forecast</h2>
-      <div class="hourly-strip" id="weatherHourly"><p>Waiting for forecast</p></div>
-    </section>
-    <div class="weather-content">
-      <section class="weather-daily" aria-labelledby="dailyHeading">
-        <h2 id="dailyHeading">Seven-day forecast</h2>
-        <div id="weatherDaily"><p>Waiting for forecast</p></div>
-      </section>
-      <section class="weather-facts" aria-label="Weather details">
-        <div><span>Rain</span><strong id="weatherRain">--</strong></div>
-        <div><span>Wind</span><strong id="weatherWind">--</strong></div>
-        <div><span>Sunrise</span><strong id="weatherSunrise">--</strong></div>
-        <div><span>Sunset</span><strong id="weatherSunset">--</strong></div>
-      </section>
+
+    <div class="cal-panel wx-hourly-panel">
+      <p class="cal-card-eyebrow">Hourly forecast</p>
+      <div class="wx-hourly" id="weatherHourly"><p class="muted">Waiting for forecast</p></div>
     </div>
+
+    <div class="wx-body">
+      <div class="cal-panel wx-daily-panel">
+        <p class="cal-card-eyebrow">Seven-day forecast</p>
+        <div class="wx-daily" id="weatherDaily"><p class="muted">Waiting for forecast</p></div>
+      </div>
+      <div class="wx-side">
+        <div class="wx-facts">
+          <div class="cal-panel wx-fact"><span class="wxf-ic">☂</span><div><small>Rain</small><strong id="weatherRain">--</strong><span class="wxf-sub" id="weatherRainSub"></span></div></div>
+          <div class="cal-panel wx-fact"><span class="wxf-ic">≋</span><div><small>Wind</small><strong id="weatherWind">--</strong><span class="wxf-sub" id="weatherWindSub"></span></div></div>
+          <div class="cal-panel wx-fact"><span class="wxf-ic">☀</span><div><small>Sunrise</small><strong id="weatherSunrise">--</strong></div></div>
+          <div class="cal-panel wx-fact"><span class="wxf-ic">☾</span><div><small>Sunset</small><strong id="weatherSunset">--</strong></div></div>
+        </div>
+        <div class="cal-panel wx-outlook" id="weatherOutlook"></div>
+      </div>
+    </div>
+    <footer class="cal-foot" id="weatherFoot"></footer>
   </section>
 
   <section class="view page-view" id="view-homekit" aria-label="Smart Home">
@@ -433,6 +443,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.7"></script>
+<script src="app.js?v=0.9.8"></script>
 </body>
 </html>

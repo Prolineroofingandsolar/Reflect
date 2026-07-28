@@ -2402,3 +2402,121 @@ body.theme-light .reflect-os { filter: none; }
 /* Ensure short events still show their title */
 .cal-ev { min-height: 42px; justify-content: center; }
 .cal-ev .ev-time { line-height: 1.1; }
+
+/* ===== Weather dashboard ===== */
+.wx-head { align-items: flex-start; }
+.wx-titleblock { min-width: 0; }
+.wx-now { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.wx-temp-big { font-size: clamp(56px, 8vw, 108px); font-weight: 300; line-height: 1; letter-spacing: -.03em; color: #fff; }
+.wx-icon-big { font-size: clamp(40px, 5vw, 66px); color: var(--butter); }
+.wx-view h1 { font-size: clamp(34px, 4.4vw, 62px); font-weight: 400; color: #fff; }
+.wx-feels { color: rgba(255,255,255,.65); margin-top: 8px; font-size: clamp(14px,1.35vw,18px); }
+.wx-updated { color: rgba(255,255,255,.4); margin-top: 4px; font-size: 13px; }
+.wx-searchblock { min-width: 280px; }
+.wx-search { display: flex; gap: 10px; }
+.wx-search input { flex: 1; height: 46px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #eef0f6; }
+.wx-hourly-panel { padding: 18px 22px; }
+.wx-hourly { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); gap: 4px; overflow-x: auto; }
+.wx-hour { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 6px; border-left: 1px solid rgba(255,255,255,.07); }
+.wx-hour:first-child { border-left: none; }
+.wx-hour time { font-size: 13px; color: rgba(255,255,255,.55); }
+.wx-hicon { font-size: 26px; color: var(--butter); }
+.wx-hour strong { font-size: clamp(20px,1.9vw,27px); font-weight: 400; color: #fff; }
+.wx-hour small { font-size: 12px; color: #8fb8e8; }
+.wx-body { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(300px,1fr); gap: 22px; align-items: start; }
+.wx-side { display: flex; flex-direction: column; gap: 22px; }
+.wx-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.wx-fact { display: flex; align-items: center; gap: 14px; padding: 18px; }
+.wxf-ic { font-size: 26px; color: var(--accent); }
+.wx-fact small { display: block; color: rgba(255,255,255,.5); font-size: 13px; }
+.wx-fact strong { display: block; font-size: clamp(19px,1.8vw,25px); font-weight: 500; color: #fff; }
+.wxf-sub { font-size: 12.5px; color: rgba(255,255,255,.45); }
+.wx-daily { display: flex; flex-direction: column; }
+.wx-day { display: grid; grid-template-columns: 96px 30px 42px minmax(70px,1fr) 42px 46px minmax(78px,auto); gap: 12px; align-items: center; padding: 11px 10px; border-radius: 12px; }
+.wx-day.is-today { background: rgba(var(--accent-rgb),.14); }
+.wx-day time { font-size: 15px; color: #eef0f6; }
+.wx-dicon { font-size: 20px; color: var(--butter); text-align: center; }
+.wx-lo, .wx-hi { font-size: 15px; font-weight: 400; text-align: right; }
+.wx-lo { color: rgba(255,255,255,.5); }
+.wx-hi { color: #fff; }
+.wx-range { display: block; height: 5px; border-radius: 999px; background: rgba(255,255,255,.14); position: relative; }
+.wx-range b { position: absolute; top: 0; bottom: 0; left: var(--range-left); width: var(--range-width); border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--dawn)); }
+.wx-pop { color: #8fb8e8; font-size: 12.5px; text-align: right; }
+.wx-desc { color: rgba(255,255,255,.5); font-size: 13px; }
+.wx-outlook-text { color: rgba(255,255,255,.7); margin: 0 0 16px; font-size: 15px; }
+.wx-arc { position: relative; height: 3px; border-radius: 999px; background: linear-gradient(90deg, rgba(255,210,138,.25), rgba(255,210,138,.7), rgba(255,210,138,.25)); margin: 22px 0 8px; }
+.wx-sun { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--butter); box-shadow: 0 0 14px var(--butter); }
+.wx-arc-labels { display: flex; justify-content: space-between; color: rgba(255,255,255,.45); font-size: 12.5px; }
+.weather-location-results { display: grid; gap: 6px; margin-top: 10px; }
+.weather-location-results button { text-align: left; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05); color: #eef0f6; cursor: pointer; display: grid; }
+.weather-location-results span { color: rgba(255,255,255,.5); font-size: 13px; }
+
+/* weather light */
+body.theme-light .wx-temp-big, body.theme-light .wx-view h1, body.theme-light .wx-hour strong,
+body.theme-light .wx-fact strong, body.theme-light .wx-hi { color: #16161e; }
+body.theme-light .wx-feels { color: rgba(22,22,30,.65); }
+body.theme-light .wx-updated, body.theme-light .wxf-sub, body.theme-light .wx-desc,
+body.theme-light .wx-arc-labels { color: rgba(22,22,30,.45); }
+body.theme-light .wx-icon-big, body.theme-light .wx-hicon, body.theme-light .wx-dicon { color: #e0a33c; }
+body.theme-light .wx-search input { border-color: rgba(0,0,0,.14); background: #fff; color: #16161e; }
+body.theme-light .wx-hour { border-left-color: rgba(0,0,0,.07); }
+body.theme-light .wx-hour time, body.theme-light .wx-fact small { color: rgba(22,22,30,.55); }
+body.theme-light .wx-hour small, body.theme-light .wx-pop { color: #3d7ab8; }
+body.theme-light .wx-day time { color: #16161e; }
+body.theme-light .wx-lo { color: rgba(22,22,30,.5); }
+body.theme-light .wx-range { background: rgba(0,0,0,.1); }
+body.theme-light .wx-outlook-text { color: rgba(22,22,30,.7); }
+body.theme-light .weather-location-results button { border-color: rgba(0,0,0,.1); background: #fff; color: #16161e; }
+body.theme-light .weather-location-results span { color: rgba(22,22,30,.5); }
+@media (max-width: 1000px) { .wx-body { grid-template-columns: 1fr; } }
+
+/* ===== Music dashboard ===== */
+.mu-search input { height: 46px; min-width: 220px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #eef0f6; }
+.mu-setup { display: none; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.mu-setup.is-visible { display: flex; }
+.mu-setup h2 { color: #fff; margin-bottom: 6px; }
+.mu-setup p { color: rgba(255,255,255,.6); margin: 0; }
+.mu-body { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(320px,1fr); gap: 22px; align-items: start; }
+.mu-player { display: grid; grid-template-columns: minmax(180px, 300px) minmax(0,1fr); gap: 30px; padding: 26px; }
+.mu-art { position: relative; aspect-ratio: 1; border-radius: 18px; overflow: hidden; display: grid; place-items: center;
+  background: linear-gradient(150deg, #3a2f5c, #1b2340 60%, #2a3350); border: 1px solid rgba(255,255,255,.09); }
+.mu-art img { width: 100%; height: 100%; object-fit: cover; }
+.mu-art-fallback { position: absolute; font-size: 60px; color: rgba(255,255,255,.35); }
+.mu-art.has-art .mu-art-fallback { display: none; }
+.mu-detail { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.mu-track { font-size: clamp(28px,3.4vw,46px); font-weight: 500; color: #fff; margin: 0 0 6px; letter-spacing: -.02em; }
+.mu-artist { font-size: clamp(17px,1.7vw,22px); color: rgba(255,255,255,.72); margin: 0 0 4px; }
+.mu-album { color: rgba(255,255,255,.45); margin: 0 0 22px; font-size: 15px; }
+.mu-times { display: flex; justify-content: space-between; color: rgba(255,255,255,.5); font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.mu-progress { height: 5px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; margin-bottom: 22px; }
+.mu-progress span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; }
+.mu-controls { display: flex; align-items: center; gap: 22px; margin-bottom: 22px; }
+.mu-controls button { background: none; border: none; color: rgba(255,255,255,.85); font-size: 24px; cursor: pointer; padding: 6px; }
+.mu-play { width: 62px; height: 62px; border-radius: 50% !important; border: 2px solid var(--accent) !important; color: #fff !important; font-size: 22px !important; display: grid; place-items: center; background: rgba(var(--accent-rgb),.16) !important; }
+.mu-volume { display: flex; align-items: center; gap: 14px; }
+.mu-volume input[type="range"] { flex: 1; max-width: 220px; }
+.mu-side { display: flex; flex-direction: column; gap: 22px; }
+.mu-recent-head { display: flex; align-items: center; justify-content: space-between; }
+.mu-link { background: none; border: none; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; }
+.mu-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 12px; }
+.mu-results .spotify-result { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: #eef0f6; cursor: pointer; }
+.mu-results .result-title { font-weight: 500; color: #fff; }
+.mu-results .spotify-result span, .mu-results .spotify-result small { color: rgba(255,255,255,.5); font-size: 12.5px; }
+.mu-view .playlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.mu-results-panel.is-disabled { opacity: .5; pointer-events: none; }
+
+/* music light */
+body.theme-light .mu-search input { border-color: rgba(0,0,0,.14); background: #fff; color: #16161e; }
+body.theme-light .mu-setup h2, body.theme-light .mu-track { color: #16161e; }
+body.theme-light .mu-setup p, body.theme-light .mu-artist { color: rgba(22,22,30,.7); }
+body.theme-light .mu-album, body.theme-light .mu-times { color: rgba(22,22,30,.5); }
+body.theme-light .mu-progress { background: rgba(0,0,0,.1); }
+body.theme-light .mu-controls button { color: rgba(22,22,30,.8); }
+body.theme-light .mu-play { color: #5b3fd6 !important; background: rgba(122,92,255,.12) !important; }
+body.theme-light .mu-art { background: linear-gradient(150deg,#dfe3f2,#cfd6ea); border-color: rgba(0,0,0,.08); }
+body.theme-light .mu-art-fallback { color: rgba(22,22,30,.3); }
+body.theme-light .mu-results .spotify-result { border-color: rgba(0,0,0,.09); background: #fff; color: #16161e; }
+body.theme-light .mu-results .result-title { color: #16161e; }
+body.theme-light .mu-results .spotify-result span, body.theme-light .mu-results .spotify-result small { color: rgba(22,22,30,.5); }
+@media (max-width: 1100px) { .mu-body { grid-template-columns: 1fr; } .mu-player { grid-template-columns: 1fr; } }

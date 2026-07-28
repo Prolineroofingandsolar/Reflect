@@ -474,22 +474,64 @@ function renderTaskPage(){
 }
 async function loadGoogleCalendar(){if(!connected("googleCalendar"))return;try{const data=await api("/api/google/calendar/events");const local=sampleData.events.filter(event=>event.source!=="google");sampleData.events=[...local,...(data.events||[]).map(event=>({...event,source:"google"}))];saveDeviceData();renderCalendarPage();renderHome();}catch(error){$("calendarStatus").textContent=error.message;}}
 async function loadWeather(){try{weatherData=await api(`/api/weather?lat=${encodeURIComponent(profile.weather.latitude)}&lon=${encodeURIComponent(profile.weather.longitude)}`);renderWeatherPage();renderHome();}catch(error){$("weatherCurrent").textContent=error.message;}}
-function renderWeatherPage(){if(!weatherData)return;const current=weatherData.current,daily=weatherData.daily,hourly=weatherData.hourly;$("weatherLocation").textContent=profile.weather.place;$("weatherCurrent").textContent=`${Math.round(current.temperature_2m)}° ${weatherLabel(current.weather_code)}`;$("weatherFeels").textContent=`Feels like ${Math.round(current.apparent_temperature)}° · High ${Math.round(daily.temperature_2m_max[0])}° · Low ${Math.round(daily.temperature_2m_min[0])}°`;const found=hourly.time.findIndex(time=>new Date(time)>=new Date()),start=found<0?0:found;$("weatherHourly").innerHTML=hourly.time.slice(start,start+12).map((time,index)=>{const i=start+index;return `<article><time>${index===0?"Now":new Date(time).toLocaleTimeString([], {hour:"2-digit"})}</time><span class="hourly-icon">${weatherIcon(hourly.weather_code[i],current.is_day)}</span><strong>${Math.round(hourly.temperature_2m[i])}°</strong><small>${hourly.precipitation_probability[i]??0}%</small></article>`;}).join("");const allLow=Math.min(...daily.temperature_2m_min),allHigh=Math.max(...daily.temperature_2m_max),span=Math.max(1,allHigh-allLow);$("weatherDaily").innerHTML=daily.time.slice(0,7).map((day,index)=>{const low=Math.round(daily.temperature_2m_min[index]),high=Math.round(daily.temperature_2m_max[index]),left=(low-allLow)/span*100,width=Math.max(8,(high-low)/span*100);return `<article><time>${index===0?"Today":new Date(`${day}T12:00`).toLocaleDateString([], {weekday:"long"})}</time><span>${weatherIcon(daily.weather_code[index])}</span><small>${daily.precipitation_probability_max[index]??0}%</small><strong>${low}°</strong><i><b style="--range-left:${left}%;--range-width:${width}%"></b></i><strong>${high}°</strong></article>`;}).join("");$("weatherRain").textContent=`${daily.precipitation_probability_max[0]??0}%`;$("weatherWind").textContent=`${Math.round(current.wind_speed_10m)} km/h ${windDirection(current.wind_direction_10m)}`;$("weatherSunrise").textContent=new Date(daily.sunrise[0]).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});$("weatherSunset").textContent=new Date(daily.sunset[0]).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});}
+function windLabel(k){if(k<6)return "Calm";if(k<20)return "Gentle breeze";if(k<39)return "Moderate";if(k<62)return "Strong";return "Gale";}
+function rainLabel(p){if(p<10)return "Low chance";if(p<40)return "Possible";if(p<70)return "Likely";return "Very likely";}
+function renderWeatherPage(){
+  if(!weatherData)return;
+  const current=weatherData.current,daily=weatherData.daily,hourly=weatherData.hourly;
+  $("weatherLocation").textContent=(profile.weather.place||"").toUpperCase();
+  $("weatherTempBig").textContent=`${Math.round(current.temperature_2m)}°`;
+  $("weatherIconBig").textContent=weatherIcon(current.weather_code,current.is_day);
+  $("weatherCurrent").textContent=weatherLabel(current.weather_code);
+  $("weatherFeels").textContent=`Feels like ${Math.round(current.apparent_temperature)}° · High ${Math.round(daily.temperature_2m_max[0])}° · Low ${Math.round(daily.temperature_2m_min[0])}°`;
+  const upd=$("weatherUpdated");if(upd)upd.textContent=`Updated ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  const found=hourly.time.findIndex(t=>new Date(t)>=new Date()),start=found<0?0:found;
+  $("weatherHourly").innerHTML=hourly.time.slice(start,start+8).map((time,index)=>{const i=start+index;return `<article class="wx-hour"><time>${index===0?"Now":new Date(time).toLocaleTimeString([], {hour:"2-digit"})}</time><span class="wx-hicon">${weatherIcon(hourly.weather_code[i],current.is_day)}</span><strong>${Math.round(hourly.temperature_2m[i])}°</strong><small>${hourly.precipitation_probability[i]??0}%</small></article>`;}).join("");
+  const allLow=Math.min(...daily.temperature_2m_min),allHigh=Math.max(...daily.temperature_2m_max),span=Math.max(1,allHigh-allLow);
+  $("weatherDaily").innerHTML=daily.time.slice(0,7).map((day,index)=>{const low=Math.round(daily.temperature_2m_min[index]),high=Math.round(daily.temperature_2m_max[index]),left=(low-allLow)/span*100,width=Math.max(8,(high-low)/span*100);return `<article class="wx-day ${index===0?"is-today":""}"><time>${index===0?"Today":new Date(`${day}T12:00`).toLocaleDateString([], {weekday:"long"})}</time><span class="wx-dicon">${weatherIcon(daily.weather_code[index])}</span><strong class="wx-lo">${low}°</strong><i class="wx-range"><b style="--range-left:${left}%;--range-width:${width}%"></b></i><strong class="wx-hi">${high}°</strong><small class="wx-pop">${daily.precipitation_probability_max[index]??0}%</small><span class="wx-desc">${esc(weatherLabel(daily.weather_code[index]))}</span></article>`;}).join("");
+  const pop=daily.precipitation_probability_max[0]??0;
+  $("weatherRain").textContent=`${pop}%`;
+  const rs=$("weatherRainSub");if(rs)rs.textContent=rainLabel(pop);
+  const ws=Math.round(current.wind_speed_10m);
+  $("weatherWind").textContent=`${ws} km/h ${windDirection(current.wind_direction_10m)}`;
+  const wsub=$("weatherWindSub");if(wsub)wsub.textContent=windLabel(ws);
+  const sr=new Date(daily.sunrise[0]),ss=new Date(daily.sunset[0]);
+  $("weatherSunrise").textContent=sr.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  $("weatherSunset").textContent=ss.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  const out=$("weatherOutlook");
+  if(out){const now=new Date();const prog=Math.max(0,Math.min(1,(now-sr)/(ss-sr)));
+    out.innerHTML=`<div class="wx-outlook-head"><div><p class="cal-card-eyebrow">Today's outlook</p><p class="wx-outlook-text">${esc(weatherLabel(current.weather_code))} · high ${Math.round(daily.temperature_2m_max[0])}°, low ${Math.round(daily.temperature_2m_min[0])}°.</p></div></div><div class="wx-arc"><span class="wx-sun" style="left:${prog*100}%"></span></div><div class="wx-arc-labels"><span>${sr.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span><span>${ss.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span></div>`;}
+  const foot=$("weatherFoot");
+  if(foot)foot.innerHTML='<span class="dot ok"></span> Weather updated <span class="cal-foot-sep">·</span> Next refresh in 15 min';
+}
 async function searchWeatherLocations(event){event.preventDefault();const query=$("weatherSearch").value.trim(),results=$("weatherLocationResults");if(query.length<2)return;results.innerHTML='<p class="empty-state">Finding places…</p>';try{const data=await api(`/api/weather/locations?q=${encodeURIComponent(query)}`);if(!data.locations?.length){results.innerHTML='<p class="empty-state">No matching places found.</p>';return;}results.innerHTML=data.locations.map((place,index)=>`<button type="button" data-weather-location="${index}"><strong>${esc(place.name)}</strong><span>${esc([place.region,place.country].filter(Boolean).join(", "))}</span></button>`).join("");results.querySelectorAll("[data-weather-location]").forEach(button=>button.addEventListener("click",()=>selectWeatherLocation(data.locations[Number(button.dataset.weatherLocation)])));}catch(error){results.innerHTML=`<p class="empty-state">${esc(error.message)}</p>`;}}
 function selectWeatherLocation(place){profile.weather={place:[place.name,place.region].filter(Boolean).join(", "),latitude:place.latitude,longitude:place.longitude};saveProfile();applyProfile();$("weatherSearch").value="";$("weatherLocationResults").innerHTML="";$("weatherCurrent").textContent="Updating weather";loadWeather();}
+function fmtMs(ms){if(!ms&&ms!==0)return "";const s=Math.floor(ms/1000);return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;}
 function renderSpotifyPage(){
   const status=$("spotifyStatus"),button=$("spotifyConnect"),useDevice=$("spotifyUseDevice"),library=$("spotifyLibrary"),device=$("spotifyDeviceStatus"),art=$("spotifyArtwork");
   const needsPermission=spotifyNeedsPlaybackPermission||spotifyNeedsRecentPermission;
-  status.textContent=!addOnInstalled("spotify")?"Install Spotify from Add-ons":needsPermission?"Spotify needs reconnecting":connected("spotify")?"Spotify connected":"Spotify connection required";
-  button.textContent=needsPermission?"Reconnect Spotify":connected("spotify")?"Disconnect":"Connect Spotify";
-  useDevice.hidden=!connected("spotify")||!spotifyDeviceId;
-  $("spotifySetup").classList.toggle("is-visible",!connected("spotify")||needsPermission);
-  library?.classList.toggle("is-disabled",!connected("spotify"));
-  if(device)device.textContent=spotifyDeviceId?(spotifyActiveDeviceId===spotifyDeviceId?"Playing on this mirror":"Ready on this mirror"):spotifyNeedsPlaybackPermission?"Reconnect Spotify to enable playback":"Preparing Reflect OS player";
-  $("spotifyTrack").textContent=sampleData.track.title;$("spotifyArtist").textContent=sampleData.track.artist;$("spotifyMeta").textContent=`${sampleData.track.album} · ${profile.spotify.deviceName}`;$("spotifyPlay").textContent=sampleData.track.playing?"Ⅱ":"▶";$("spotifyProgress").style.width=`${sampleData.track.progress}%`;
-  if(art){if(sampleData.track.artwork){art.src=sampleData.track.artwork;art.hidden=false;}else{art.removeAttribute("src");art.hidden=true;}}
+  const isConn=connected("spotify");
+  if(status)status.textContent=!addOnInstalled("spotify")?"Connect Spotify in Settings":needsPermission?"Spotify needs reconnecting":isConn?`Spotify · ${profile.spotify.deviceName||"Reflect OS Mirror"}`:"Spotify · not connected";
+  if(button)button.textContent=needsPermission?"Reconnect":isConn?"Disconnect":"Connect";
+  if(useDevice)useDevice.hidden=!isConn||!spotifyDeviceId;
+  $("spotifySetup").classList.toggle("is-visible",!isConn||needsPermission);
+  library?.classList.toggle("is-disabled",!isConn);
+  if(device)device.textContent=spotifyDeviceId?(spotifyActiveDeviceId===spotifyDeviceId?"Playing on this mirror":"Ready on this mirror"):spotifyNeedsPlaybackPermission?"Reconnect to enable playback":"Preparing player";
+  $("spotifyTrack").textContent=sampleData.track.title;
+  $("spotifyArtist").textContent=sampleData.track.artist;
+  $("spotifyMeta").textContent=sampleData.track.album||"";
+  $("spotifyPlay").textContent=sampleData.track.playing?"⏸":"▶";
+  $("spotifyProgress").style.width=`${sampleData.track.progress}%`;
+  const el=$("spotifyElapsed"),du=$("spotifyDuration");
+  if(el)el.textContent=fmtMs(sampleData.track.positionMs)||"0:00";
+  if(du)du.textContent=fmtMs(sampleData.track.durationMs)||"";
+  const wrap=$("spotifyArt");
+  if(art){if(sampleData.track.artwork){art.src=sampleData.track.artwork;art.hidden=false;wrap?.classList.add("has-art");}else{art.removeAttribute("src");art.hidden=true;wrap?.classList.remove("has-art");}}
+  const foot=$("musicFoot");
+  if(foot)foot.innerHTML=isConn?'<span class="dot ok"></span> Spotify connected <span class="cal-foot-sep">·</span> Playing through this mirror':'<span class="dot"></span> Not connected — connect Spotify in Settings';
 }
-async function loadSpotify(){if(!connected("spotify"))return;try{const playback=await api("/api/spotify/player");spotifyActiveDeviceId=playback.device?.id||"";if(playback.item){sampleData.track={uri:playback.item.uri||"",title:playback.item.name,artist:playback.item.artists?.map(a=>a.name).join(", ")||"Spotify",album:playback.item.album?.name||"Spotify",artwork:playback.item.album?.images?.at(-1)?.url||"",progress:playback.item.duration_ms?Math.round(playback.progress_ms/playback.item.duration_ms*100):0,playing:Boolean(playback.is_playing)};profile.spotify.deviceName=playback.device?.name||profile.spotify.deviceName;saveProfile();}renderSpotifyPage();renderHome();}catch(error){$("spotifySetupText").textContent=error.message;}}
+
+async function loadSpotify(){if(!connected("spotify"))return;try{const playback=await api("/api/spotify/player");spotifyActiveDeviceId=playback.device?.id||"";if(playback.item){sampleData.track={uri:playback.item.uri||"",title:playback.item.name,artist:playback.item.artists?.map(a=>a.name).join(", ")||"Spotify",album:playback.item.album?.name||"Spotify",artwork:playback.item.album?.images?.at(-1)?.url||"",progress:playback.item.duration_ms?Math.round(playback.progress_ms/playback.item.duration_ms*100):0,positionMs:playback.progress_ms,durationMs:playback.item.duration_ms,playing:Boolean(playback.is_playing)};profile.spotify.deviceName=playback.device?.name||profile.spotify.deviceName;saveProfile();}renderSpotifyPage();renderHome();}catch(error){$("spotifySetupText").textContent=error.message;}}
 async function spotifySdkToken(){try{const data=await api("/api/spotify/sdk-token");spotifyNeedsPlaybackPermission=false;return data.access_token;}catch(error){spotifyNeedsPlaybackPermission=error.message.includes("Reconnect Spotify");$("spotifySetupText").textContent=error.message;renderSpotifyPage();throw error;}}
 function ensureSpotifySdk(){
   if(!connected("spotify")||spotifyPlayer||spotifySdkLoading)return;spotifySdkLoading=true;window.onSpotifyWebPlaybackSDKReady=initSpotifyPlayer;
@@ -500,7 +542,7 @@ async function initSpotifyPlayer(){
   spotifyPlayer=new Spotify.Player({name:"Reflect OS Mirror",getOAuthToken:async(callback)=>{try{callback(await spotifySdkToken());}catch{}},volume:Number($("spotifyVolume").value)/100,enableMediaSession:true});
   spotifyPlayer.addListener("ready",({device_id})=>{spotifyDeviceId=device_id;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();renderSpotifyPage();});
   spotifyPlayer.addListener("not_ready",()=>{spotifyDeviceId="";renderSpotifyPage();});
-  spotifyPlayer.addListener("player_state_changed",(state)=>{if(!state)return;const track=state.track_window.current_track;spotifyActiveDeviceId=spotifyDeviceId;sampleData.track={uri:track.uri||"",title:track.name,artist:track.artists?.map(a=>a.name).join(", ")||"Spotify",album:track.album?.name||"Spotify",artwork:track.album?.images?.at(-1)?.url||"",progress:state.duration?Math.round(state.position/state.duration*100):0,playing:!state.paused};renderSpotifyPage();renderHome();});
+  spotifyPlayer.addListener("player_state_changed",(state)=>{if(!state)return;const track=state.track_window.current_track;spotifyActiveDeviceId=spotifyDeviceId;sampleData.track={uri:track.uri||"",title:track.name,artist:track.artists?.map(a=>a.name).join(", ")||"Spotify",album:track.album?.name||"Spotify",artwork:track.album?.images?.at(-1)?.url||"",progress:state.duration?Math.round(state.position/state.duration*100):0,positionMs:state.position,durationMs:state.duration,playing:!state.paused};renderSpotifyPage();renderHome();});
   ["initialization_error","authentication_error","account_error","playback_error"].forEach(event=>spotifyPlayer.addListener(event,({message})=>{$("spotifySetupText").textContent=event==="account_error"?"Playing through Reflect OS requires Spotify Premium.":message;$("spotifySetup").classList.add("is-visible");}));
   await spotifyPlayer.connect();spotifySdkLoading=false;
 }
