@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23a98bff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.5">
+  <link rel="stylesheet" href="styles.css?v=0.9.6">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -63,27 +63,39 @@
     <footer class="cal-foot" id="calFoot"></footer>
   </section>
 
-  <section class="view page-view" id="view-tasks" aria-label="Tasks">
-    <header class="page-header">
-      <div>
+  <section class="view cal-view tasks-view" id="view-tasks" aria-label="Tasks">
+    <header class="cal-head">
+      <div class="cal-title">
         <p class="eyebrow">Focus list</p>
         <h1>Tasks</h1>
+        <p class="cal-date" id="taskDate">Today</p>
       </div>
-      <button class="ghost-button" id="addTask" type="button">Add task</button>
+      <div class="cal-actions">
+        <button class="pill-primary" id="addTask" type="button">+ Add task</button>
+      </div>
     </header>
-    <div class="tabs" role="tablist" aria-label="Task filters" id="taskTabs">
-      <button class="is-selected" type="button" data-task-filter="today">Today</button>
-      <button type="button" data-task-filter="upcoming">Upcoming</button>
-      <button type="button" data-task-filter="completed">Completed</button>
-      <button type="button" data-task-filter="work">Work</button>
-      <button type="button" data-task-filter="home">Home</button>
+    <div class="cal-body">
+      <div class="cal-panel cal-main">
+        <div class="tabs" role="tablist" aria-label="Task filters" id="taskTabs">
+          <button class="is-selected" type="button" data-task-filter="today">Today</button>
+          <button type="button" data-task-filter="upcoming">Upcoming</button>
+          <button type="button" data-task-filter="completed">Completed</button>
+          <button type="button" data-task-filter="work">Work</button>
+          <button type="button" data-task-filter="home">Home</button>
+        </div>
+        <div class="task-listhead">
+          <h2 id="taskHeading">Today</h2>
+          <div class="task-progress"><span id="taskProgressText">0 of 0 complete</span><span class="tp-bar"><i id="taskProgressBar"></i></span></div>
+        </div>
+        <ul class="task-rows" id="taskList"></ul>
+      </div>
+      <aside class="cal-aside">
+        <div class="cal-panel task-focus" id="taskFocus"></div>
+        <div class="cal-panel task-next" id="taskNext"></div>
+        <div class="cal-panel task-lists" id="taskLists"></div>
+      </aside>
     </div>
-    <ul class="detail-tasks" id="taskList">
-      <li><button class="check"></button><div><h3>Review prototype</h3><p>Work · Before 11:00</p></div></li>
-      <li><button class="check"></button><div><h3>Water plants</h3><p>Home</p></div></li>
-      <li><button class="check is-done"></button><div><h3>Morning stretch</h3><p>Health · Completed</p></div></li>
-      <li><button class="check"></button><div><h3>Order coffee</h3><p>Home</p></div></li>
-    </ul>
+    <footer class="cal-foot" id="taskFoot"></footer>
   </section>
 
   <section class="view page-view music-page" id="view-music" aria-label="Music">
@@ -421,6 +433,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.5"></script>
+<script src="app.js?v=0.9.6"></script>
 </body>
 </html>
