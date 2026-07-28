@@ -2329,3 +2329,76 @@ body.in-settings .reflect-os { filter: none; }
 .task-lists .tl-row:first-of-type { border-top: none; }
 .tl-name { flex: 1; font-size: 15.5px; color: #eef0f6; }
 .tl-count { color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; }
+
+/* ===== Calendar & Tasks — Light theme ===== */
+body.theme-light .cal-view {
+  color: #16161e;
+  background: radial-gradient(120% 80% at 80% -10%, #eef1f8 0%, #e9ecf4 45%, #eef0f6 100%);
+}
+body.theme-light .cal-title h1 { color: #16161e; }
+body.theme-light .cal-title .eyebrow,
+body.theme-light .cal-date { color: rgba(22,22,30,.55); }
+body.theme-light .pill-primary { border-color: rgba(122,92,255,.45); background: rgba(122,92,255,.12); color: #5b3fd6; }
+body.theme-light .pill-ghost { border-color: rgba(0,0,0,.12); background: #fff; color: #16161e; }
+body.theme-light .cal-panel { background: #fff; border-color: rgba(0,0,0,.08); box-shadow: 0 10px 34px -28px rgba(0,0,0,.45); }
+body.theme-light .cal-view .tabs { background: rgba(0,0,0,.05); }
+body.theme-light .cal-view .tabs button { color: rgba(22,22,30,.55); }
+body.theme-light .cal-view .tabs button.is-selected { background: rgba(122,92,255,.14); color: #5b3fd6; }
+
+/* calendar light */
+body.theme-light .cal-hour span { color: rgba(22,22,30,.42); }
+body.theme-light .cal-events { border-left-color: rgba(0,0,0,.08); }
+body.theme-light .cal-events::before { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(100%/12 - 1px), rgba(0,0,0,.07) calc(100%/12)); }
+body.theme-light .cal-ev { background: color-mix(in srgb, var(--ev) 18%, white); border-color: color-mix(in srgb, var(--ev) 38%, white); }
+body.theme-light .cal-ev .ev-title { color: #16161e; }
+body.theme-light .cal-ev .ev-time,
+body.theme-light .cal-ev .ev-loc { color: rgba(22,22,30,.6); }
+body.theme-light .cal-now span { background: #eef0f6; }
+body.theme-light .cal-empty { color: rgba(22,22,30,.45); }
+body.theme-light .cal-listrow { background: rgba(0,0,0,.03); }
+body.theme-light .cal-listrow h3 { color: #16161e; }
+body.theme-light .cal-listrow time,
+body.theme-light .cal-listrow p { color: rgba(22,22,30,.5); }
+body.theme-light .mc-nav { color: rgba(22,22,30,.5); }
+body.theme-light .mc-dow span { color: rgba(22,22,30,.42); }
+body.theme-light .mc-day { color: rgba(22,22,30,.8); }
+body.theme-light .mc-day.is-today { background: var(--accent); color: #fff; }
+body.theme-light .mc-day.is-today .mc-dot { background: #fff; }
+body.theme-light .cal-card-eyebrow { color: rgba(22,22,30,.45); }
+body.theme-light .cn-meta strong { color: #16161e; }
+body.theme-light .cn-meta small { color: rgba(22,22,30,.55); }
+body.theme-light .cal-rel { color: #c2643f; }
+body.theme-light .cc-check { background: rgba(122,92,255,.16); color: #5b3fd6; }
+body.theme-light .cal-foot { color: rgba(22,22,30,.5); }
+body.theme-light .cal-foot .dot { background: rgba(22,22,30,.35); }
+body.theme-light .cal-foot .dot.ok { background: #2fa676; }
+
+/* tasks light */
+body.theme-light .task-listhead h2 { color: #16161e; }
+body.theme-light .task-progress { color: rgba(22,22,30,.55); }
+body.theme-light .tp-bar { background: rgba(0,0,0,.1); }
+body.theme-light .task-row { background: rgba(0,0,0,.025); border-color: rgba(0,0,0,.07); }
+body.theme-light .tr-grip { color: rgba(22,22,30,.22); }
+body.theme-light .tr-check { border-color: rgba(22,22,30,.28); }
+body.theme-light .tr-check.is-done::after { color: #fff; }
+body.theme-light .tr-title { color: #16161e; }
+body.theme-light .tr-meta small { color: rgba(22,22,30,.5); }
+body.theme-light .task-row.is-done .tr-title { color: rgba(22,22,30,.4); }
+body.theme-light .tr-prio { color: #c0392b; background: rgba(214,80,64,.1); border-color: rgba(214,80,64,.28); }
+body.theme-light .tr-chip { color: color-mix(in srgb, var(--cat) 65%, black); background: color-mix(in srgb, var(--cat) 15%, white); border-color: color-mix(in srgb, var(--cat) 32%, white); }
+body.theme-light .focus-ring { background: conic-gradient(var(--accent) calc(var(--pct) * 1%), rgba(0,0,0,.1) 0); }
+body.theme-light .focus-ring::before { background: #fff; }
+body.theme-light .focus-ring span { color: #16161e; }
+body.theme-light .focus-ring span i { color: rgba(22,22,30,.55); }
+body.theme-light .focus-left { color: rgba(22,22,30,.7); }
+body.theme-light .tn-title { color: #16161e; }
+body.theme-light .tn-sub { color: rgba(22,22,30,.5); }
+body.theme-light .tl-row { border-top-color: rgba(0,0,0,.07); }
+body.theme-light .tl-name { color: #16161e; }
+body.theme-light .tl-count { color: rgba(22,22,30,.55); }
+
+/* Light theme: page screens shouldn't be dimmed by the mirror display filter */
+body.theme-light .reflect-os { filter: none; }
+/* Ensure short events still show their title */
+.cal-ev { min-height: 42px; justify-content: center; }
+.cal-ev .ev-time { line-height: 1.1; }
