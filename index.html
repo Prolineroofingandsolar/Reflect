@@ -9,7 +9,7 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23a98bff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.4">
+  <link rel="stylesheet" href="styles.css?v=0.9.5">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -33,25 +33,34 @@
     </div>
   </section>
 
-  <section class="view page-view" id="view-calendar" aria-label="Calendar">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow" id="calendarStatus">Google Calendar add-on</p>
+  <section class="view cal-view" id="view-calendar" aria-label="Calendar">
+    <header class="cal-head">
+      <div class="cal-title">
+        <p class="eyebrow" id="calendarStatus">Device calendar</p>
         <h1>Calendar</h1>
+        <p class="cal-date" id="calDate">Today</p>
       </div>
-      <button class="ghost-button" id="addEvent" type="button">Add event</button>
+      <div class="cal-actions">
+        <button class="pill-primary" id="addEvent" type="button">+ Add event</button>
+        <button class="pill-ghost" id="calToday" type="button">Today</button>
+      </div>
     </header>
-    <div class="tabs" role="tablist" aria-label="Calendar views" id="calendarTabs">
-      <button class="is-selected" type="button" data-calendar-view="day">Day</button>
-      <button type="button" data-calendar-view="week">Week</button>
-      <button type="button" data-calendar-view="upcoming">Upcoming</button>
+    <div class="cal-body">
+      <div class="cal-panel cal-main">
+        <div class="tabs" role="tablist" aria-label="Calendar views" id="calendarTabs">
+          <button class="is-selected" type="button" data-calendar-view="day">Day</button>
+          <button type="button" data-calendar-view="week">Week</button>
+          <button type="button" data-calendar-view="upcoming">Upcoming</button>
+        </div>
+        <div class="cal-timeline" id="calendarTimeline"></div>
+      </div>
+      <aside class="cal-aside">
+        <div class="cal-panel cal-month" id="calMonth"></div>
+        <div class="cal-panel cal-next" id="calNext"></div>
+        <div class="cal-panel cal-cals" id="calList"></div>
+      </aside>
     </div>
-    <div class="timeline" id="calendarTimeline">
-      <article><time>08:00</time><div><h3>Morning planning</h3><p>Kitchen mirror</p></div></article>
-      <article><time>09:30</time><div><h3>Design review</h3><p>Studio</p></div></article>
-      <article><time>12:15</time><div><h3>Lunch with Maya</h3><p>Soho</p></div></article>
-      <article><time>17:45</time><div><h3>Gym session</h3><p>Strength block</p></div></article>
-    </div>
+    <footer class="cal-foot" id="calFoot"></footer>
   </section>
 
   <section class="view page-view" id="view-tasks" aria-label="Tasks">
@@ -412,6 +421,6 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.4"></script>
+<script src="app.js?v=0.9.5"></script>
 </body>
 </html>

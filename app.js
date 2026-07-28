@@ -387,7 +387,51 @@ async function uploadPhotos(files){try{for(const file of files){const blob=await
 async function deletePhoto(id){await new Promise((resolve,reject)=>{const r=photoStore("readwrite").delete(id);r.onsuccess=resolve;r.onerror=()=>reject(r.error);});profile.photos.ids=profile.photos.ids.filter(item=>item!==id);if(!profile.photos.ids.length)profile.widgets.photos.visible=false;await loadPhotos();renderHome();renderWidgetSettings();renderPhotosPage();}
 async function movePhoto(id,direction){const index=profile.photos.ids.indexOf(id);const next=direction==="up"?index-1:index+1;if(index<0||next<0||next>=profile.photos.ids.length)return;[profile.photos.ids[index],profile.photos.ids[next]]=[profile.photos.ids[next],profile.photos.ids[index]];saveProfile();await loadPhotos();renderPhotosPage();}
 
-function renderCalendarPage(){const timeline=$("calendarTimeline");$("calendarStatus").textContent=connected("googleCalendar")?"Google Calendar · live":"Device calendar";const now=new Date(),endOfWeek=new Date(now);endOfWeek.setDate(now.getDate()+7);let events=sortedEvents().map(eventDisplay);if(calendarView==="day")events=events.filter(event=>{const raw=event.start||event.date;return raw&&new Date(raw).toDateString()===now.toDateString();});if(calendarView==="week")events=events.filter(event=>{const raw=event.start||event.date;return raw&&new Date(raw)<=endOfWeek;});timeline.innerHTML=events.map(event=>`<article><time>${esc(calendarView==="day"?event.time:`${event.day} · ${event.time}`)}</time><div><h3>${esc(event.title)}</h3><p>${esc(event.location||"No location")}</p></div></article>`).join("")||`<article class="empty-row"><div><h3>No events here</h3><p>Add an event or connect Google Calendar.</p></div></article>`;}
+function calColor(i){return ["#8f7bff","#c98a5a","#5b86c9","#5aa88a","#c96a8a"][i%5];}
+function renderCalendarPage(){
+  const now=new Date();
+  const status=$("calendarStatus");if(status)status.textContent=connected("googleCalendar")?"Google Calendar · live":"Device calendar";
+  const cd=$("calDate");if(cd)cd.textContent=now.toLocaleDateString([], {weekday:"long",day:"numeric",month:"long"});
+  const timeline=$("calendarTimeline");if(!timeline)return;
+  const endOfWeek=new Date(now);endOfWeek.setDate(now.getDate()+7);
+  const events=sortedEvents().map(eventDisplay);
+  const dayEvents=events.filter(e=>{const raw=e.start||e.date;return raw&&new Date(raw).toDateString()===now.toDateString();});
+  if(calendarView==="day"){
+    const startH=8,endH=20,span=endH-startH,hours=[];for(let h=startH;h<=endH;h++)hours.push(h);
+    const parseHM=(e)=>{const d=new Date(e.start||`${e.date}T${e.time||"09:00"}`);return isNaN(d)?startH:d.getHours()+d.getMinutes()/60;};
+    const blocks=dayEvents.filter(e=>!e.allDay).map((e,i)=>{
+      const s=Math.max(startH,parseHM(e));const er=e.end?new Date(e.end):null;let en=er&&!isNaN(er)?er.getHours()+er.getMinutes()/60:s+1;en=Math.min(endH,Math.max(en,s+0.6));
+      return `<div class="cal-ev" style="top:${(s-startH)/span*100}%;height:${(en-s)/span*100}%;--ev:${calColor(i)}"><span class="ev-time">${esc(e.time)}</span><span class="ev-title">${esc(e.title)}</span>${e.location?`<span class="ev-loc">${esc(e.location)}</span>`:""}</div>`;
+    }).join("");
+    const nowPos=(now.getHours()+now.getMinutes()/60-startH)/span*100;
+    const nowLine=(nowPos>=0&&nowPos<=100)?`<div class="cal-now" style="top:${nowPos}%"><span>${now.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span></div>`:"";
+    timeline.className="cal-timeline day";
+    timeline.innerHTML=`<div class="cal-hours">${hours.map(h=>`<div class="cal-hour"><span>${String(h).padStart(2,"0")}:00</span></div>`).join("")}</div><div class="cal-events">${nowLine}${blocks||'<div class="cal-empty">No events today</div>'}</div>`;
+  } else {
+    let list=events;if(calendarView==="week")list=events.filter(e=>{const raw=e.start||e.date;return raw&&new Date(raw)<=endOfWeek;});
+    timeline.className="cal-timeline list";
+    timeline.innerHTML=list.map((e,i)=>`<article class="cal-listrow" style="--ev:${calColor(i)}"><time>${esc(e.day)} · ${esc(e.time)}</time><div><h3>${esc(e.title)}</h3><p>${esc(e.location||"No location")}</p></div></article>`).join("")||'<div class="cal-empty">No upcoming events</div>';
+  }
+  const mEl=$("calMonth");
+  if(mEl){
+    const y=now.getFullYear(),m=now.getMonth();const first=new Date(y,m,1);const startDow=(first.getDay()+6)%7;const daysIn=new Date(y,m+1,0).getDate();
+    const evDays=new Set(events.map(e=>{const raw=e.start||e.date;const d=raw?new Date(raw):null;return d&&!isNaN(d)&&d.getMonth()===m&&d.getFullYear()===y?d.getDate():null;}).filter(Boolean));
+    let cells="";for(let i=0;i<startDow;i++)cells+='<span class="mc-empty"></span>';
+    for(let d=1;d<=daysIn;d++)cells+=`<span class="mc-day ${d===now.getDate()?"is-today":""}">${d}${evDays.has(d)?'<i class="mc-dot"></i>':""}</span>`;
+    mEl.innerHTML=`<div class="mc-head"><button class="mc-nav" type="button" aria-label="Previous">‹</button><strong>${first.toLocaleDateString([], {month:"long",year:"numeric"})}</strong><button class="mc-nav" type="button" aria-label="Next">›</button></div><div class="mc-dow">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=>`<span>${d}</span>`).join("")}</div><div class="mc-grid">${cells}</div>`;
+  }
+  const nEl=$("calNext");
+  if(nEl){
+    const up=events.map(e=>({e,d:new Date(e.start||`${e.date}T${e.time||"00:00"}`)})).filter(x=>!isNaN(x.d)&&x.d>=now).sort((a,b)=>a.d-b.d)[0];
+    if(up){const mins=Math.round((up.d-now)/60000);const rel=mins<60?`In ${mins} min`:mins<1440?`In ${Math.round(mins/60)} h`:up.e.day;
+      nEl.innerHTML=`<p class="cal-card-eyebrow">Next up</p><div class="cal-next-row"><span class="ev-dot" style="--ev:${calColor(0)}"></span><div class="cn-meta"><strong>${esc(up.e.title)}</strong><small>${esc(up.e.time)}${up.e.location?` · ${esc(up.e.location)}`:""}</small></div><span class="cal-rel">${esc(rel)}</span></div>`;
+    } else nEl.innerHTML='<p class="cal-card-eyebrow">Next up</p><p class="muted">Nothing scheduled.</p>';
+  }
+  const lEl=$("calList");
+  if(lEl)lEl.innerHTML=`<p class="cal-card-eyebrow">Calendars</p>${[["Personal","#8f7bff"],["Work","#5b86c9"],["Family","#5aa88a"]].map(([n,c])=>`<div class="cal-calrow"><span class="ev-dot" style="--ev:${c}"></span><span class="cc-name">${esc(n)}</span><span class="cc-check">✓</span></div>`).join("")}`;
+  const fEl=$("calFoot");
+  if(fEl)fEl.innerHTML=connected("googleCalendar")?'<span class="dot ok"></span> Synced just now <span class="cal-foot-sep">·</span> Google Calendar connected':'<span class="dot"></span> Device calendar — connect Google in Settings';
+}
 function renderTaskPage(){const filtered=sampleData.tasks.filter(task=>taskFilter==="today"?task.when==="Today"&&!task.done:taskFilter==="upcoming"?task.when==="Upcoming"&&!task.done:taskFilter==="completed"?task.done:task.category.toLowerCase()===taskFilter);$("taskList").innerHTML=filtered.map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-task-index="${index}" aria-label="Toggle ${esc(task.title)}"></button><div><h3>${esc(task.title)}</h3><p>${esc(task.category)} · ${esc(task.when)}</p></div></li>`;}).join("")||"<li><div><h3>Nothing here</h3><p>This view is clear.</p></div></li>";$("taskList").querySelectorAll("[data-task-index]").forEach(button=>button.addEventListener("click",()=>{sampleData.tasks[Number(button.dataset.taskIndex)].done=!sampleData.tasks[Number(button.dataset.taskIndex)].done;saveDeviceData();renderTaskPage();renderHome();}));}
 async function loadGoogleCalendar(){if(!connected("googleCalendar"))return;try{const data=await api("/api/google/calendar/events");const local=sampleData.events.filter(event=>event.source!=="google");sampleData.events=[...local,...(data.events||[]).map(event=>({...event,source:"google"}))];saveDeviceData();renderCalendarPage();renderHome();}catch(error){$("calendarStatus").textContent=error.message;}}
 async function loadWeather(){try{weatherData=await api(`/api/weather?lat=${encodeURIComponent(profile.weather.latitude)}&lon=${encodeURIComponent(profile.weather.longitude)}`);renderWeatherPage();renderHome();}catch(error){$("weatherCurrent").textContent=error.message;}}
@@ -485,6 +529,7 @@ $("spotifySearchForm")?.addEventListener("submit",searchSpotify);$("spotifyRefre
 $("weatherSearchForm")?.addEventListener("submit",searchWeatherLocations);
 document.querySelectorAll("[data-calendar-view]").forEach(button=>button.addEventListener("click",()=>{calendarView=button.dataset.calendarView;document.querySelectorAll("[data-calendar-view]").forEach(item=>item.classList.toggle("is-selected",item===button));renderCalendarPage();}));
 document.querySelectorAll("[data-task-filter]").forEach(button=>button.addEventListener("click",()=>{taskFilter=button.dataset.taskFilter;document.querySelectorAll("[data-task-filter]").forEach(item=>item.classList.toggle("is-selected",item===button));renderTaskPage();}));
+$("calToday")?.addEventListener("click",()=>renderCalendarPage());
 $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask").addEventListener("click",()=>openItemDialog("task"));$("itemForm").addEventListener("submit",addItem);$("cancelItem").addEventListener("click",()=>$("itemDialog").close());
 $("affirmationMode")?.addEventListener("change",()=>{affirmationIndex=0;profile.affirmations.mode=$("affirmationMode").value;saveProfile();renderHome();});
 $("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.interval=Number($("affirmationInterval").value);saveProfile();restartAffirmations();});
