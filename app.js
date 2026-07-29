@@ -85,6 +85,7 @@ let photoRecords = [], photoUrls = new Map();
 let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
 let homeAssistantEntities = [];
 let spotifyPlaylists = [];
+let draggingWidget = null;
 
 function clone(value){ return JSON.parse(JSON.stringify(value)); }
 function esc(value){ return String(value ?? "").replace(/[&<>'"]/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]); }
@@ -178,15 +179,45 @@ function renderHome(){
   activeWidgets().filter(([id])=>profile.widgets[id]?.visible).sort((a,b)=>profile.widgets[a[0]].priority-profile.widgets[b[0]].priority).forEach(([id,widget])=>{
     const config=profile.widgets[id]; const zone=layoutGrid.querySelector(`[data-zone="${config.zone}"]`)||layoutGrid.querySelector("[data-zone='centre']"); const article=document.createElement("article");
     const isPhotoBackdrop=id==="photos"&&photoRecords.length;article.className=`mirror-widget ${isPhotoBackdrop?"photo-mirror-widget":""} ${selectedWidget===id?"is-selected":""}`; article.dataset.widget=id; article.dataset.size=config.size; article.setAttribute("aria-label",widget.label);
-    const editControls=isPhotoBackdrop?`<div class="widget-edit photo-backdrop-edit"><span>Full-screen backdrop</span><button type="button" data-edit="hide">Hide</button></div>`:`<div class="widget-edit"><select data-edit="zone" aria-label="Widget zone">${zoneOptions(config.zone)}</select><select data-edit="size" aria-label="Widget size">${sizeOptions(config.size)}</select><button type="button" data-edit="hide">Hide</button></div>`;
+    if(isEditing)article.draggable=true;
+    const editControls=isPhotoBackdrop
+      ?`<div class="widget-edit photo-backdrop-edit"><span class="we-name">Full-screen backdrop</span><button type="button" data-edit="hide" title="Hide">✕</button></div>`
+      :`<div class="widget-edit"><span class="we-name">${esc(widget.label)}</span><div class="we-sizes">${["small","medium","large"].map(s=>`<button type="button" class="we-size ${config.size===s?"on":""}" data-edit-size="${s}" title="${s}">${s[0].toUpperCase()}</button>`).join("")}</div><button type="button" class="we-hide" data-edit="hide" title="Hide widget">✕</button></div>`;
     article.innerHTML=`<div class="widget-body">${renderWidget(id)}</div>${editControls}`; zone.append(article);
   });
-  bindWidgetControls(); updateClock(); restartSlideshow(); restartAffirmations();
+  bindWidgetControls(); renderWidgetTray(); updateClock(); restartSlideshow(); restartAffirmations();
+}
+function renderWidgetTray(){
+  const tray=$("widgetTray");if(!tray)return;
+  const hidden=activeWidgets().filter(([id])=>!profile.widgets[id]?.visible);
+  tray.innerHTML=hidden.length
+    ?`<span class="et-tray-label">Add:</span>${hidden.map(([id,w])=>`<button class="et-chip" type="button" data-add-widget="${id}">+ ${esc(w.label)}</button>`).join("")}`
+    :`<span class="et-tray-label">All widgets are on the mirror</span>`;
+  tray.querySelectorAll("[data-add-widget]").forEach(b=>b.addEventListener("click",()=>{const id=b.dataset.addWidget;profile.widgets[id].visible=true;selectedWidget=id;saveProfile();renderHome();renderWidgetSettings();}));
 }
 function zoneOptions(selected){return zones.map(([value,label])=>`<option value="${value}" ${value===selected?"selected":""}>${label}</option>`).join("");}
 function sizeOptions(selected){return ["small","medium","large"].map(value=>`<option value="${value}" ${value===selected?"selected":""}>${value}</option>`).join("");}
 function bindWidgetControls(){
-  document.querySelectorAll(".mirror-widget").forEach((widget)=>{const id=widget.dataset.widget;widget.addEventListener("click",(event)=>{if(!isEditing)return;selectedWidget=id;$("editHint").textContent=`${baseWidgets[id].label} selected`;renderHome();event.stopPropagation();});widget.querySelector("[data-edit='zone']")?.addEventListener("change",(e)=>{profile.widgets[id].zone=e.target.value;saveProfile();renderHome();});widget.querySelector("[data-edit='size']")?.addEventListener("change",(e)=>{profile.widgets[id].size=e.target.value;saveProfile();renderHome();});widget.querySelector("[data-edit='hide']")?.addEventListener("click",(e)=>{profile.widgets[id].visible=false;saveProfile();renderHome();renderWidgetSettings();e.stopPropagation();});});
+  document.querySelectorAll(".mirror-widget").forEach((widget)=>{
+    const id=widget.dataset.widget;
+    widget.addEventListener("click",(event)=>{if(!isEditing)return;selectedWidget=id;renderHome();event.stopPropagation();});
+    widget.querySelectorAll("[data-edit-size]").forEach(b=>b.addEventListener("click",(e)=>{profile.widgets[id].size=b.dataset.editSize;saveProfile();renderHome();renderWidgetSettings();e.stopPropagation();}));
+    widget.querySelector("[data-edit='hide']")?.addEventListener("click",(e)=>{profile.widgets[id].visible=false;saveProfile();renderHome();renderWidgetSettings();e.stopPropagation();});
+    // drag to move between zones
+    widget.addEventListener("dragstart",(e)=>{if(!isEditing)return;draggingWidget=id;widget.classList.add("is-dragging");document.body.classList.add("is-dragging-widget");try{e.dataTransfer.setData("text/plain",id);e.dataTransfer.effectAllowed="move";}catch{}});
+    widget.addEventListener("dragend",()=>{draggingWidget=null;widget.classList.remove("is-dragging");document.body.classList.remove("is-dragging-widget");document.querySelectorAll(".layout-zone").forEach(z=>z.classList.remove("is-over"));});
+  });
+  layoutGrid.querySelectorAll(".layout-zone").forEach(zone=>{
+    zone.addEventListener("dragover",(e)=>{if(!draggingWidget)return;e.preventDefault();e.dataTransfer.dropEffect="move";zone.classList.add("is-over");});
+    zone.addEventListener("dragleave",()=>zone.classList.remove("is-over"));
+    zone.addEventListener("drop",(e)=>{
+      e.preventDefault();zone.classList.remove("is-over");
+      const id=draggingWidget||e.dataTransfer.getData("text/plain");
+      if(!id||!profile.widgets[id])return;
+      profile.widgets[id].zone=zone.dataset.zone;selectedWidget=id;draggingWidget=null;
+      saveProfile();renderHome();renderWidgetSettings();
+    });
+  });
   document.querySelectorAll("[data-home-task-index]").forEach(button=>button.addEventListener("click",()=>{sampleData.tasks[Number(button.dataset.homeTaskIndex)].done=!sampleData.tasks[Number(button.dataset.homeTaskIndex)].done;saveDeviceData();renderHome();renderTaskPage();}));
   document.querySelectorAll("[data-spotify-action]").forEach(button=>button.addEventListener("click",e=>{runSpotifyAction(button.dataset.spotifyAction);e.stopPropagation();}));
   document.querySelector("[data-open-photos]")?.addEventListener("click",()=>{showView("settings");openSettingsPage("photos");});
@@ -617,6 +648,7 @@ $("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.in
 $("affirmationCustom")?.addEventListener("input",()=>{affirmationIndex=0;profile.affirmations.custom=$("affirmationCustom").value.split("\n").map(line=>line.trim()).filter(Boolean);saveProfile();renderHome();});
 $("haForm")?.addEventListener("submit",connectHomeAssistant);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>connected("smartHome")?disconnectAddOn("smartHome"):connectConnection("smartHome"));
 document.querySelectorAll("[data-home-device]").forEach(button=>button.addEventListener("click",()=>button.classList.toggle("is-active")));
+$("homeEditFab")?.addEventListener("click",()=>setEditing(true));
 $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout").addEventListener("click",()=>{const account=profile.account,addOns=profile.addOns,photos=profile.photos;profile=clone(defaultProfile);profile.account=account;profile.addOns=addOns;profile.photos=photos;saveProfile();applyProfile();renderHome();renderWidgetSettings();});
 document.addEventListener("mousemove",showNav);document.addEventListener("click",showNav);document.addEventListener("touchstart",event=>{touchStartX=event.changedTouches[0].clientX;longPressTimer=setTimeout(()=>setEditing(true),760);showNav();},{passive:true});document.addEventListener("touchend",event=>{clearTimeout(longPressTimer);const delta=event.changedTouches[0].clientX-touchStartX;if(Math.abs(delta)<70||isEditing)return;const visible=[...navItems].filter(item=>!item.hidden);const active=visible.findIndex(item=>item.classList.contains("is-active"));showView(visible[Math.max(0,Math.min(visible.length-1,active+(delta<0?1:-1)))].dataset.view);},{passive:true});
 document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if(event.key==="Escape"){if(settingsPage)closeSettingsPage();else setEditing(false);return;}if(event.key.toLowerCase()==="e"){setEditing(!isEditing);return;}const view={h:"home",c:"calendar",t:"tasks",m:"music",w:"weather",s:"homekit",",":"settings"}[event.key.toLowerCase()];if(view)showView(view);});

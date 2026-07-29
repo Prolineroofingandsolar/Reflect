@@ -2520,3 +2520,96 @@ body.theme-light .mu-results .spotify-result { border-color: rgba(0,0,0,.09); ba
 body.theme-light .mu-results .result-title { color: #16161e; }
 body.theme-light .mu-results .spotify-result span, body.theme-light .mu-results .spotify-result small { color: rgba(22,22,30,.5); }
 @media (max-width: 1100px) { .mu-body { grid-template-columns: 1fr; } .mu-player { grid-template-columns: 1fr; } }
+
+/* ===== Home layout editing ===== */
+.home-edit-fab {
+  position: absolute; right: clamp(20px,3vw,44px); bottom: clamp(20px,3vw,44px);
+  display: inline-flex; align-items: center; gap: 9px; height: 46px; padding: 0 20px;
+  border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(20,20,26,.6);
+  color: var(--text); font-size: 14.5px; cursor: pointer; backdrop-filter: blur(10px);
+  opacity: 0; transform: translateY(6px); transition: opacity .25s ease, transform .25s ease; z-index: 6;
+}
+.quick-nav.is-visible ~ .home-edit-fab,
+.home-view:hover .home-edit-fab { opacity: 1; transform: none; }
+.home-edit-fab:hover { border-color: var(--accent); color: var(--accent); }
+.is-editing .home-edit-fab { display: none; }
+body.theme-light .home-edit-fab { background: rgba(255,255,255,.85); border-color: rgba(0,0,0,.12); }
+
+/* zones become visible targets while editing */
+.is-editing .layout-zone {
+  border: 1px dashed rgba(var(--accent-rgb),.35);
+  border-radius: 14px; padding: 16px; transition: background .15s ease, border-color .15s ease;
+}
+.is-editing .layout-zone.is-over { border-color: var(--accent); background: rgba(var(--accent-rgb),.12); border-style: solid; }
+body.is-dragging-widget .layout-zone { background: rgba(var(--accent-rgb),.05); }
+.is-editing .layout-zone::before { font-size: 10.5px; letter-spacing: .1em; color: rgba(var(--accent-rgb),.75); }
+
+/* widget cards in edit mode */
+.is-editing .mirror-widget {
+  padding: 14px 16px 12px; border-radius: 14px; cursor: grab;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(20,20,26,.55); backdrop-filter: blur(8px);
+}
+body.theme-light .is-editing .mirror-widget { background: rgba(255,255,255,.9); border-color: rgba(0,0,0,.12); }
+.is-editing .mirror-widget.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(var(--accent-rgb),.35); }
+.mirror-widget.is-dragging { opacity: .45; cursor: grabbing; }
+.is-editing .widget-edit {
+  display: flex !important; align-items: center; gap: 10px; margin-top: 12px;
+  padding-top: 10px; border-top: 1px solid rgba(127,127,140,.22); grid-template-columns: none !important;
+}
+.we-name { flex: 1; font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.we-sizes { display: inline-flex; gap: 4px; }
+.we-size {
+  width: 26px; height: 26px; padding: 0; border-radius: 8px; font-size: 11px; cursor: pointer;
+  border: 1px solid rgba(127,127,140,.3); background: transparent; color: var(--muted); min-height: 0;
+}
+.we-size.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.we-hide {
+  width: 26px; height: 26px; padding: 0; border-radius: 8px; font-size: 12px; cursor: pointer; min-height: 0;
+  border: 1px solid rgba(127,127,140,.3); background: transparent; color: var(--muted);
+}
+.we-hide:hover { border-color: #ff8a8a; color: #ff8a8a; }
+
+/* edit toolbar */
+.edit-toolbar {
+  display: none; position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: clamp(18px,2.6vw,36px); width: min(1080px, calc(100% - 48px));
+  align-items: center; gap: 18px; padding: 14px 20px; border-radius: 20px;
+  border: 1px solid var(--line); background: rgba(16,16,22,.86); backdrop-filter: blur(14px); z-index: 7;
+}
+body.theme-light .edit-toolbar { background: rgba(255,255,255,.94); }
+.is-editing .edit-toolbar { display: flex; }
+.et-lead { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.et-lead strong { font-size: 15px; }
+.et-lead span { font-size: 13px; color: var(--muted); }
+.et-tray { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; justify-content: center; }
+.et-tray-label { font-size: 12.5px; color: var(--muted); }
+.et-chip {
+  padding: 7px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  border: 1px dashed rgba(var(--accent-rgb),.5); background: rgba(var(--accent-rgb),.08); color: var(--accent); min-height: 0;
+}
+.et-chip:hover { border-style: solid; background: var(--accent-soft); }
+.et-actions { display: flex; gap: 10px; flex: none; }
+.et-actions .pill-ghost, .et-actions .pill-primary { height: 40px; padding: 0 18px; font-size: 14px; }
+@media (max-width: 900px) { .edit-toolbar { flex-direction: column; align-items: stretch; } .et-actions { justify-content: flex-end; } }
+
+/* Edit mode: make room for the nav and toolbar so nothing overlaps */
+.is-editing .home-view { padding-top: clamp(74px, 7vw, 100px); padding-bottom: clamp(170px, 15vw, 210px); }
+.is-editing .layout-grid { min-height: calc(100vh - clamp(250px, 24vw, 320px)); }
+.is-editing .quick-nav { opacity: 1; }
+
+/* Edit mode: compact widget previews so the whole 9-zone grid fits on screen */
+.is-editing .layout-grid { height: calc(100vh - clamp(250px, 24vw, 320px)); min-height: 0; }
+.is-editing .layout-zone { overflow: hidden; }
+.is-editing .mirror-widget { max-height: 100%; overflow: hidden; }
+.is-editing .widget-body { max-height: 100%; overflow: hidden; }
+.is-editing .time { font-size: clamp(30px, 3.4vw, 52px) !important; }
+.is-editing .date { font-size: 14px !important; margin-top: 6px !important; }
+.is-editing .greeting { font-size: 13px !important; margin-top: 2px !important; }
+.is-editing .weather-temp { font-size: clamp(28px, 3vw, 44px) !important; }
+.is-editing .weather-icon { font-size: clamp(22px, 2.2vw, 32px) !important; }
+.is-editing .weather-summary, .is-editing .home-weather .muted { font-size: 13px !important; margin-top: 4px !important; }
+.is-editing .affirmation-text { font-size: clamp(15px, 1.5vw, 20px) !important; }
+.is-editing .affirmation-quote p { font-size: clamp(14px, 1.4vw, 18px) !important; }
+.is-editing .compact-list li { font-size: 14px !important; }
+.is-editing .mirror-widget h2 { font-size: 14px !important; }
+.is-editing .song { font-size: 15px !important; }
