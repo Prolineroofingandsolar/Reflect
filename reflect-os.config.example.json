@@ -4,6 +4,7 @@
   "googleClientId": "",
   "googleClientSecret": "",
   "anthropicApiKey": "",
+  "anthropicWorkspaceId": "",
   "assistantName": "Jarvis",
   "assistantWakeWord": true,
   "openaiApiKey": ""
