@@ -2,5 +2,9 @@
   "reflectSecret": "replace-with-a-long-random-value",
   "spotifyClientId": "",
   "googleClientId": "",
-  "googleClientSecret": ""
+  "googleClientSecret": "",
+  "anthropicApiKey": "",
+  "assistantName": "Jarvis",
+  "assistantWakeWord": true,
+  "openaiApiKey": ""
 }

@@ -47,6 +47,8 @@ while true; do
     --disable-features=Translate \
     --check-for-update-interval=31536000 \
     --overscroll-history-navigation=0 \
+    --use-fake-ui-for-media-stream \
+    --autoplay-policy=no-user-gesture-required \
     "$APP_URL"
   echo "Chromium exited; restarting in 3s..." >&2
   sleep 3
