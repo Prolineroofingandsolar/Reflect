@@ -27,7 +27,20 @@ OLD_PID="$(lsof -tiTCP:4173 -sTCP:LISTEN 2>/dev/null)"
 
 cd "$APP_ROOT"
 node server.js >"$APP_ROOT/data/server.log" 2>&1 &
-sleep 1
+SERVER_PID=$!
+
+# Wait for the server to answer before opening the window. The first launch after a download
+# can take several seconds while macOS checks Node, so a fixed short sleep isn't enough.
+for i in {1..30}; do
+  curl -s -o /dev/null "$URL" && break
+  if ! kill -0 $SERVER_PID 2>/dev/null; then break; fi
+  sleep 0.5
+done
+if ! curl -s -o /dev/null "$URL"; then
+  LOG_HINT="$( { grep -m1 -iE 'error' "$APP_ROOT/data/server.log" || tail -n 3 "$APP_ROOT/data/server.log"; } 2>/dev/null | tr -d '"\\')"
+  osascript -e "display dialog \"Reflect OS couldn't start its local server.\n\n${LOG_HINT}\n\nThe full log is in the data folder (server.log).\" buttons {\"OK\"} default button \"OK\" with title \"Reflect OS\" with icon caution"
+  exit 1
+fi
 
 # Open in a clean Chrome app window if available, else the default browser.
 if [ -d "/Applications/Google Chrome.app" ]; then
