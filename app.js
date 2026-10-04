@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"light", brightness:80, warmth:0, nightMode:false,
+  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"dark", brightness:80, warmth:0, nightMode:false,
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -289,7 +289,7 @@ function renderSettings(){
   const bv=$("brightnessVal");if(bv)bv.textContent=`${profile.brightness||80}%`;
   const wr=$("warmthRange");if(wr)wr.value=profile.warmth||0;
   const wv=$("warmthVal");if(wv)wv.textContent=warmthLabel(profile.warmth||0);
-  const seg=$("appearanceSeg");if(seg)seg.querySelectorAll("[data-appearance]").forEach(b=>b.classList.toggle("on",b.dataset.appearance===(profile.theme||"light")));
+  const seg=$("appearanceSeg");if(seg)seg.querySelectorAll("[data-appearance]").forEach(b=>b.classList.toggle("on",b.dataset.appearance===(profile.theme||"dark")));
   const nm=$("nightMode");if(nm){nm.classList.toggle("on",!!profile.nightMode);nm.setAttribute("aria-checked",String(!!profile.nightMode));}
   renderDashWidgets();renderDashServices();
 }

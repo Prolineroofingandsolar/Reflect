@@ -2031,7 +2031,7 @@ input[type="color"] {
 .connection-icon { color: var(--accent); }
 .sn-icon { color: var(--accent); }
 
-/* ===== Light theme (default; Dark is for actual mirror glass) ===== */
+/* ===== Light theme (optional; Dark is the default for mirror glass) ===== */
 body.theme-light {
   --text: rgba(22, 22, 30, 0.96);
   --muted: rgba(22, 22, 30, 0.56);
