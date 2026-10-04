@@ -6,7 +6,13 @@ Reflect OS is a modular smart mirror program for Mac preview and Raspberry Pi de
 
 Easiest: **double-click `Reflect OS.app`** in this folder. It starts the local server and opens the mirror in a Chrome app-style window (or your default browser). No Terminal needed.
 
-The first time you open it after downloading, macOS may say it's from an unidentified developer — **right-click the app → Open → Open** once to allow it (this app is not yet code-signed).
+The first time you open it after downloading, macOS blocks it because the app is not code-signed yet (you may see "Apple could not verify…", "unidentified developer" or "is damaged"). To allow it once:
+
+1. Double-click `Reflect OS.app` and click **Done** (or **OK**) on the warning.
+2. Open **System Settings → Privacy & Security**, scroll down to **Security**, and click **Open Anyway** next to Reflect OS.
+3. Enter your Mac password, then click **Open Anyway** again.
+
+On macOS 14 or older, **right-click the app → Open → Open** also works. If it still won't open, open Terminal, type `xattr -cr ` (with a space), drag the Reflect folder into the window, press Return, then double-click the app again.
 
 Alternative: run `scripts/launch-mac.command`.
 
