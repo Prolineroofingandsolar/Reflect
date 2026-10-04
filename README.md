@@ -89,6 +89,26 @@ cp /home/pi/reflect-os/scripts/reflect-os.desktop /home/pi/.config/autostart/ref
 
 5. Reboot the Pi.
 
+## Voice Assistant (Jarvis)
+
+Reflect has a built-in voice assistant in the style of Iron Man's Jarvis. Say **"Jarvis"** (or "Hey Jarvis, what's on today?"), press `J`, or tap the glowing orb at the bottom of the screen. It answers out loud, shows its reply on the mirror, and can act on the mirror: switch screens, control Home Assistant lights, switches, locks, covers, scenes and heating, play, pause, skip or search Spotify, add and complete tasks, add calendar events, and change display brightness or night mode. It can see the live weather, calendar, tasks, music and devices, so questions like "do I need an umbrella?" just work. After it answers it keeps listening for a few seconds, so you can follow up without saying its name again.
+
+Setup: add your Anthropic API key to `reflect-os.config.json` (copy `reflect-os.config.example.json` if you don't have one yet), then restart Reflect OS:
+
+```json
+{
+  "anthropicApiKey": "sk-ant-...",
+  "assistantName": "Jarvis",
+  "assistantWakeWord": true
+}
+```
+
+- **Brain:** Claude (`claude-opus-5-5` by default; set `assistantModel` to change it), called from the local server so the key never reaches the browser.
+- **Hearing:** the browser's built-in speech recognition (works in Chrome on a Mac; Chrome sends the audio to Google for recognition). The wake word listens continuously while the mirror is open; set `"assistantWakeWord": false` to only listen after a tap or `J`.
+- **Voice:** the browser's built-in voice, preferring a British male voice such as "Daniel" on macOS.
+- **Optional upgrade:** add an `openaiApiKey` for a natural-sounding server voice (`assistantVoice`, default `fable`) and for server-side speech recognition. Raspberry Pi Chromium has no built-in speech recognition, so on a Pi this key is what lets it hear you (tap or `J` to talk; the wake word needs browser speech recognition).
+- No microphone, or just want to type? The assistant screen has a text box.
+
 ## Shortcuts
 
 - `H` home
@@ -100,6 +120,7 @@ cp /home/pi/reflect-os/scripts/reflect-os.desktop /home/pi/.config/autostart/ref
 - `A` add-ons
 - `,` settings
 - `E` edit layout
+- `J` talk to the voice assistant
 - `Escape` close navigation or exit edit mode
 
 ## Remaining Integration

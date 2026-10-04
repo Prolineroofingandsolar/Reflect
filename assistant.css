@@ -1,0 +1,165 @@
+/* Reflect assistant: Jarvis-style voice presence. Always dark, so it reads behind mirror glass in any theme. */
+.jv {
+  --jv: 86, 216, 255;
+  --jv-text: rgba(236, 250, 255, 0.96);
+  --jv-muted: rgba(180, 225, 240, 0.62);
+}
+
+.jv-mini {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(var(--jv), 0.0), rgba(var(--jv), 0.75), rgba(var(--jv), 0.0) 40%, rgba(var(--jv), 0.6) 70%, rgba(var(--jv), 0.0));
+  opacity: 0.5;
+  cursor: pointer;
+  animation: jv-spin 9s linear infinite;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.jv-mini::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #000;
+}
+.jv-mini-core {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgba(var(--jv), 0.9) 35%, rgba(var(--jv), 0) 75%);
+  animation: jv-breathe 4s ease-in-out infinite;
+}
+.jv-mini:hover,
+.jv-mini:focus-visible { opacity: 0.95; transform: scale(1.06); outline: none; }
+.jv.is-unconfigured .jv-mini { opacity: 0.25; filter: grayscale(0.7); }
+.jv.is-open .jv-mini,
+body.is-editing .jv-mini { opacity: 0; pointer-events: none; }
+
+.jv-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px 16px;
+  background: radial-gradient(ellipse at 50% 42%, rgba(4, 22, 32, 0.78) 0%, rgba(0, 0, 0, 0.92) 70%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--jv-text);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+.jv.is-open .jv-stage { opacity: 1; pointer-events: auto; }
+
+.jv-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  color: rgba(var(--jv), 0.8);
+  text-shadow: 0 0 12px rgba(var(--jv), 0.6);
+}
+
+.jv-orb {
+  width: min(280px, 62vw);
+  height: min(280px, 62vw);
+  cursor: pointer;
+  transform: scale(0.92);
+  transition: transform 400ms cubic-bezier(.2, .8, .2, 1);
+}
+.jv.is-open .jv-orb { transform: scale(1); }
+
+.jv-state {
+  min-height: 1.2em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(var(--jv), 0.75);
+}
+.jv[data-state="thinking"] .jv-state { animation: jv-flicker 1.2s ease-in-out infinite; }
+
+.jv-heard {
+  min-height: 1.4em;
+  max-width: 680px;
+  margin: 10px 0 0;
+  font-size: clamp(15px, 1.4vw, 19px);
+  font-style: italic;
+  color: var(--jv-muted);
+}
+.jv-reply {
+  min-height: 1.4em;
+  max-width: 760px;
+  margin: 4px 0 0;
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 300;
+  line-height: 1.35;
+  color: var(--jv-text);
+  text-shadow: 0 0 24px rgba(var(--jv), 0.25);
+}
+
+.jv-type {
+  display: flex;
+  gap: 8px;
+  width: min(460px, 100%);
+  margin-top: 22px;
+  opacity: 0.55;
+  transition: opacity 200ms ease;
+}
+.jv-type:focus-within,
+.jv-type:hover { opacity: 1; }
+.jv .jv-type input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(var(--jv), 0.3);
+  border-radius: 999px;
+  background: rgba(var(--jv), 0.06);
+  color: var(--jv-text);
+  outline: none;
+}
+.jv .jv-type input::placeholder { color: var(--jv-muted); }
+.jv .jv-type input:focus { border-color: rgba(var(--jv), 0.7); }
+.jv-type button {
+  padding: 10px 16px;
+  border: 1px solid rgba(var(--jv), 0.4);
+  border-radius: 999px;
+  background: rgba(var(--jv), 0.12);
+  color: var(--jv-text);
+  cursor: pointer;
+}
+
+.jv-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--jv-muted);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jv-close:hover { color: var(--jv-text); }
+
+@keyframes jv-spin { to { transform: rotate(360deg); } }
+@keyframes jv-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.05); } }
+@keyframes jv-flicker { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .jv-mini, .jv-mini-core { animation: none; }
+}

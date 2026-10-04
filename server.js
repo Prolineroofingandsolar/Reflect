@@ -32,6 +32,19 @@ function resolveSecret() {
   return generated;
 }
 const secret = crypto.createHash("sha256").update(resolveSecret()).digest();
+const assistantConfig = {
+  name: String(process.env.REFLECT_ASSISTANT_NAME || localConfig.assistantName || "Jarvis").trim() || "Jarvis",
+  anthropicKey: process.env.ANTHROPIC_API_KEY || localConfig.anthropicApiKey || "",
+  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-opus-5-5",
+  wakeWord: localConfig.assistantWakeWord !== false,
+  // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
+  // for browsers without the Web Speech API (Chromium on Raspberry Pi).
+  openaiKey: process.env.OPENAI_API_KEY || localConfig.openaiApiKey || "",
+  voice: localConfig.assistantVoice || "fable",
+  ttsModel: localConfig.assistantTtsModel || "gpt-4o-mini-tts",
+  sttModel: localConfig.assistantSttModel || "whisper-1"
+};
+
 const providers = {
   spotify: {
     clientId: process.env.SPOTIFY_CLIENT_ID || localConfig.spotifyClientId,
@@ -236,6 +249,8 @@ async function api(req, res, url) {
     writeState(state);
     return json(res, 200, { signedIn: false }, { "Set-Cookie": "reflect_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0" });
   }
+
+  if (url.pathname.startsWith("/api/assistant/")) return assistantApi(req, res, url);
 
   const session = currentAccount(req);
   if (!session) return json(res, 401, { error: "Sign in to Reflect OS first." });
@@ -475,10 +490,117 @@ async function api(req, res, url) {
   return json(res, 404, { error: "Not found" });
 }
 
+function assistantSystemPrompt() {
+  const name = assistantConfig.name;
+  return `You are ${name}, the AI that lives in a smart mirror called Reflect. Think of the AI butler from the Iron Man films: calm, quick, quietly witty and unfailingly competent, with a dry British manner.
+
+Everything you write is spoken aloud by a text-to-speech voice and shown briefly on the mirror, so:
+- Answer in one to three short spoken sentences. Lead with the answer. No lists, no markdown, no emoji, no URLs.
+- Say numbers, times and temperatures the way a person would say them out loud.
+- A touch of dry humour is welcome; never let it get in the way of the answer.
+- Use the person's name now and then, not in every reply.
+
+Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
+
+Use your tools to act on the mirror: change screens, control smart-home devices, control music, add or complete tasks, add calendar events, and adjust the display. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
+}
+
+const assistantTools = [
+  { name: "show_screen", description: "Switch the mirror to one of its screens.", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "settings"] } }, required: ["screen"], additionalProperties: false } },
+  { name: "control_device", description: "Control a Home Assistant device listed in the mirror context. Use turn_on/turn_off/toggle for lights, switches and fans (brightness_pct optionally sets light brightness), activate for scenes, lock/unlock for locks, open/close for covers, and set_temperature (with temperature) for climate.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, temperature: { type: "number" } }, required: ["entity_id", "action"], additionalProperties: false } },
+  { name: "music", description: "Control Spotify on the mirror. play resumes, pause pauses, next/previous skip, play_search finds and plays a song, artist or album from query.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["play", "pause", "next", "previous", "play_search"] }, query: { type: "string" } }, required: ["action"], additionalProperties: false } },
+  { name: "add_task", description: "Add a task to the mirror's task list.", input_schema: { type: "object", properties: { title: { type: "string" }, category: { type: "string", enum: ["Home", "Work", "Health", "Personal"] }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" } }, required: ["title"], additionalProperties: false } },
+  { name: "complete_task", description: "Mark a task from the context as done.", input_schema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"], additionalProperties: false } },
+  { name: "add_event", description: "Add an event to the mirror's on-device calendar.", input_schema: { type: "object", properties: { title: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM, 24-hour" }, location: { type: "string" } }, required: ["title", "date", "time"], additionalProperties: false } },
+  { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } }
+];
+
+function sameOriginRequest(req) {
+  // Browsers only allow cross-site requests without a CORS preflight for "simple" content types,
+  // so requiring JSON/audio bodies plus a loopback Origin keeps other websites from spending API credit.
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return allowedHost({ headers: { host: new URL(origin).host } }); } catch { return false; }
+}
+
+async function rawBody(req, limit) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw Object.assign(new Error("That recording is too long."), { status: 413 });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function assistantApi(req, res, url) {
+  if (url.pathname === "/api/assistant/status" && req.method === "GET") {
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(assistantConfig.openaiKey), serverTranscription: Boolean(assistantConfig.openaiKey) });
+  }
+  if (req.method !== "POST") return json(res, 404, { error: "Not found" });
+  if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
+  const type = String(req.headers["content-type"] || "");
+
+  if (url.pathname === "/api/assistant/chat") {
+    if (!type.startsWith("application/json")) return json(res, 415, { error: "Send JSON." });
+    if (!assistantConfig.anthropicKey) return json(res, 503, { error: `Add an anthropicApiKey to reflect-os.config.json to wake ${assistantConfig.name}.` });
+    const input = await body(req);
+    const messages = Array.isArray(input.messages) ? input.messages : [];
+    if (!messages.length || messages.length > 60 || messages.some((m) => !m || !["user", "assistant"].includes(m.role) || !Array.isArray(m.content))) return json(res, 400, { error: "Invalid conversation." });
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01" },
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", system: assistantSystemPrompt(), tools: assistantTools, messages })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return json(res, response.status === 401 ? 503 : 502, { error: response.status === 401 ? "The Anthropic API key in reflect-os.config.json was rejected." : result.error?.message || "The assistant is unavailable right now." });
+      return json(res, 200, { content: result.content || [], stop_reason: result.stop_reason });
+    } catch { return json(res, 502, { error: "The assistant could not reach Claude. Check the internet connection." }); }
+  }
+
+  if (url.pathname === "/api/assistant/speak") {
+    if (!type.startsWith("application/json")) return json(res, 415, { error: "Send JSON." });
+    if (!assistantConfig.openaiKey) return json(res, 409, { error: "Server voice is not configured." });
+    const text = String((await body(req)).text || "").trim().slice(0, 1500);
+    if (!text) return json(res, 400, { error: "Nothing to say." });
+    try {
+      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${assistantConfig.openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: assistantConfig.ttsModel, voice: assistantConfig.voice, input: text, response_format: "mp3", instructions: "Calm, warm and precise, with a refined British accent and a hint of dry wit, like a capable AI butler." })
+      });
+      if (!response.ok) return json(res, 502, { error: "The server voice is unavailable." });
+      const audio = Buffer.from(await response.arrayBuffer());
+      res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.length });
+      return res.end(audio);
+    } catch { return json(res, 502, { error: "The server voice is unavailable." }); }
+  }
+
+  if (url.pathname === "/api/assistant/transcribe") {
+    if (!type.startsWith("audio/")) return json(res, 415, { error: "Send audio." });
+    if (!assistantConfig.openaiKey) return json(res, 409, { error: "Server speech recognition is not configured." });
+    try {
+      const audio = await rawBody(req, 8 * 1024 * 1024);
+      const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "mp4" : type.includes("wav") ? "wav" : "webm";
+      const form = new FormData();
+      form.append("file", new Blob([audio], { type: type.split(";")[0] }), `speech.${ext}`);
+      form.append("model", assistantConfig.sttModel);
+      form.append("language", "en");
+      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${assistantConfig.openaiKey}` }, body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return json(res, 502, { error: "Speech recognition is unavailable." });
+      return json(res, 200, { text: String(result.text || "").trim() });
+    } catch (error) { return json(res, error.status || 502, { error: error.status ? error.message : "Speech recognition is unavailable." }); }
+  }
+  return json(res, 404, { error: "Not found" });
+}
+
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "addons/catalog.json"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "assistant.css", "addons/catalog.json"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");

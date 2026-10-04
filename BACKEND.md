@@ -49,6 +49,10 @@ GET             /api/spotify/search
 GET             /api/spotify/recent
 GET             /api/spotify/sdk-token
 GET             /api/google/calendar/events
+GET             /api/assistant/status
+POST            /api/assistant/chat
+POST            /api/assistant/speak
+POST            /api/assistant/transcribe
 ```
 
 ## Provider Notes
