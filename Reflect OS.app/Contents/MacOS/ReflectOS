@@ -26,8 +26,14 @@ OLD_PID="$(lsof -tiTCP:4173 -sTCP:LISTEN 2>/dev/null)"
 [ -n "$OLD_PID" ] && kill $OLD_PID 2>/dev/null && sleep 0.5
 
 cd "$APP_ROOT"
-node server.js >"$APP_ROOT/data/server.log" 2>&1 &
+# macOS stops everything in an app's process group when the app's own process exits, which
+# killed the server as soon as this script finished. Job control (set -m) gives the server its
+# own process group, and nohup/disown keep it running after this launcher quits.
+set -m
+nohup node server.js >"$APP_ROOT/data/server.log" 2>&1 </dev/null &
 SERVER_PID=$!
+disown
+set +m
 
 # Wait for the server to answer before opening the window. The first launch after a download
 # can take several seconds while macOS checks Node, so a fixed short sleep isn't enough.
