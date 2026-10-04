@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:4, personName:"Will", greetingPrefix:"Good", accentColor:"#a98bff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"dark", brightness:80, warmth:0, nightMode:false,
+  version:5, personName:"Will", greetingPrefix:"Good", accentColor:"#56d8ff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"dark", brightness:80, warmth:0, nightMode:false,
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -96,7 +96,7 @@ function loadProfile(){
 function mergeProfile(saved={}){
   if(!saved || typeof saved!=="object") return clone(defaultProfile);
   const next=clone(defaultProfile);
-  Object.assign(next,saved,{version:4});
+  Object.assign(next,saved,{version:5});
   next.account={...defaultProfile.account,...(saved.account||{})};
   next.spotify={...defaultProfile.spotify,...(saved.spotify||{})};
   next.weather={...defaultProfile.weather,...(saved.weather||{})};
@@ -115,6 +115,11 @@ function mergeProfile(saved={}){
   next.widgets=clone(defaultProfile.widgets);
   Object.keys(baseWidgets).forEach((id)=>{ next.widgets[id]={...next.widgets[id],...(saved.widgets?.[id]||{})}; });
   Object.keys(next.widgets).forEach((id)=>{ if(!baseWidgets[id] || !zones.some(([zone])=>zone===next.widgets[id].zone)) delete next.widgets[id]; });
+  if(Number(saved.version||0)<5){
+    // HUD redesign: move the old purple default to Jarvis cyan and clear the full-screen photo so the glass reads as a mirror.
+    if(String(saved.accentColor||"").toLowerCase()==="#a98bff") next.accentColor=defaultProfile.accentColor;
+    if(next.widgets.photos) next.widgets.photos.visible=false;
+  }
   if(!document.querySelector(`[data-view="${CSS.escape(next.defaultView)}"]`)) next.defaultView="home";
   return next;
 }
@@ -160,11 +165,11 @@ function eventDisplay(event){const raw=event.start||[event.date,event.time].filt
 function sortedEvents(){return [...sampleData.events].sort((a,b)=>String(a.start||`${a.date||"9999"}T${a.time||"23:59"}`).localeCompare(String(b.start||`${b.date||"9999"}T${b.time||"23:59"}`)));}
 
 function renderWidget(id){
-  if(id==="clock") return `<p class="time" id="timeNow">08:42</p><p class="date" id="dateNow"></p><p class="greeting" id="greeting"></p>`;
-  if(id==="weather"){const current=weatherData?.current,daily=weatherData?.daily;return `<div class="weather-line"><span class="weather-icon">${weatherIcon(current?.weather_code??2,current?.is_day)}</span><span class="weather-temp">${current?Math.round(current.temperature_2m):"--"}°</span></div><p class="weather-summary">${esc(current?weatherLabel(current.weather_code):"Updating weather")}</p><p class="muted">${daily?`High ${Math.round(daily.temperature_2m_max[0])}° · Low ${Math.round(daily.temperature_2m_min[0])}°`:esc(profile.weather.place)}</p>`;}
+  if(id==="clock") return `<p class="time"><span id="timeNow">08:42</span><span class="time-sec" id="timeSec"></span></p><div class="hud-sec" aria-hidden="true"><i id="secBar"></i></div><p class="date" id="dateNow"></p><p class="greeting" id="greeting"></p>`;
+  if(id==="weather"){const current=weatherData?.current,daily=weatherData?.daily;return `<h2>${esc(profile.weather.place||"Weather")}</h2><div class="weather-line"><span class="weather-icon">${weatherIcon(current?.weather_code??2,current?.is_day)}</span><span class="weather-temp">${current?Math.round(current.temperature_2m):"--"}°</span></div><p class="weather-summary">${esc(current?weatherLabel(current.weather_code):"Updating weather")}</p><p class="muted">${daily?`High ${Math.round(daily.temperature_2m_max[0])}° · Low ${Math.round(daily.temperature_2m_min[0])}°`:esc(profile.weather.place)}</p>`;}
   if(id==="calendar"){const events=sortedEvents().slice(0,3).map(eventDisplay);return `<h2>Upcoming</h2><ol class="event-list compact-list">${events.length?events.map(e=>`<li><time>${esc(e.time)}</time><span>${esc(e.title)}</span>${e.location?`<small>${esc(e.location)}</small>`:""}</li>`).join(""):`<li class="quiet-empty">No upcoming events</li>`}</ol>`;}
   if(id==="tasks") return `<h2>Today</h2><ul class="task-list compact-list">${sampleData.tasks.filter(task=>task.when==="Today").slice(0,4).map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-home-task-index="${index}" aria-label="Mark ${esc(task.title)} complete"></button><span>${esc(task.title)}</span><small>${esc(task.category)}</small></li>`;}).join("")||`<li class="quiet-empty">Nothing due today</li>`}</ul>`;
-  if(id==="music") return `<div class="now-playing spotify-widget"><div><p class="song">${esc(sampleData.track.title)}</p><p class="artist">${esc(sampleData.track.artist)}</p></div><div class="mini-controls"><button data-spotify-action="previous" aria-label="Previous track">‹</button><button class="play" data-spotify-action="play" aria-label="Play or pause">${sampleData.track.playing?"Ⅱ":"▶"}</button><button data-spotify-action="next" aria-label="Next track">›</button></div><div class="progress"><span style="width:${sampleData.track.progress}%"></span></div></div>`;
+  if(id==="music") return `<h2>Now playing</h2><div class="now-playing spotify-widget"><div><p class="song">${esc(sampleData.track.title)}</p><p class="artist">${esc(sampleData.track.artist)}</p></div><div class="mini-controls"><button data-spotify-action="previous" aria-label="Previous track">‹</button><button class="play" data-spotify-action="play" aria-label="Play or pause">${sampleData.track.playing?"Ⅱ":"▶"}</button><button data-spotify-action="next" aria-label="Next track">›</button></div><div class="progress"><span style="width:${sampleData.track.progress}%"></span></div></div>`;
   if(id==="affirmations"){const pool=affirmationPool();if(!pool.length)return `<p class="affirmation-empty">Add your own affirmations in Settings.</p>`;const item=pool[affirmationIndex%pool.length];return typeof item==="string"?`<p class="affirmation-text">${esc(item)}</p>`:`<blockquote class="affirmation-quote"><p>${esc(item.t)}</p><cite>${esc(item.a)}</cite></blockquote>`;}
   if(id==="smartHome"){const items=connected("smartHome")&&homeAssistantEntities.length?homeAssistantEntities.filter(e=>["light","switch","climate","lock"].includes(e.domain)).slice(0,4).map(e=>`${e.name} · ${haValue(e)}`):sampleData.smartHome;return `<h2>Smart Home</h2><div class="smart-summary">${items.map(item=>`<p>${esc(item)}</p>`).join("")}</div>`;}
   if(id==="photos"){
@@ -238,7 +243,7 @@ function affirmationPool(){
 }
 function restartAffirmations(){clearInterval(affirmationTimer);const pool=affirmationPool();if(profile.widgets.affirmations?.visible&&pool.length>1)affirmationTimer=setInterval(()=>{affirmationIndex=(affirmationIndex+1)%pool.length;const el=document.querySelector('[data-widget="affirmations"] .widget-body');if(el)el.innerHTML=renderWidget("affirmations");},Math.max(8,Number(profile.affirmations.interval)||30)*1000);}
 function restartSlideshow(){clearInterval(slideshowTimer);if(profile.widgets.photos.visible&&photoRecords.length>1)slideshowTimer=setInterval(()=>{currentPhoto=profile.photos.order==="shuffle"?Math.floor(Math.random()*photoRecords.length):(currentPhoto+1)%photoRecords.length;renderHome();},profile.photos.interval*1000);}
-function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
+function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);const sec=now.getSeconds();if($("timeSec"))$("timeSec").textContent=String(sec).padStart(2,"0");const bar=$("secBar");if(bar){bar.style.transition=sec===0?"none":"";bar.style.width=`${(sec+1)/60*100}%`;}$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
 
 function statusFor(id){const state=profile.addOns[id];if(state.error)return "Needs attention";if(!state.installed)return "Available";if(addOnRegistry[id].requiresConnection&&!connected(id))return "Connection required";return connected(id)?"Connected":"Installed";}
 function greetingWord(){const h=new Date().getHours();return h<12?"morning":h<18?"afternoon":"evening";}

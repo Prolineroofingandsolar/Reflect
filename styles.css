@@ -5,8 +5,8 @@
   --muted: rgba(255, 255, 255, 0.58);
   --faint: rgba(255, 255, 255, 0.2);
   --line: rgba(255, 255, 255, 0.13);
-  --accent: #a98bff;
-  --accent-rgb: 169, 139, 255;
+  --accent: #56d8ff;
+  --accent-rgb: 86, 216, 255;
   --accent-soft: rgba(var(--accent-rgb), 0.18);
   /* Reflect brand — the Aura */
   --dawn: #ff9b7b;
@@ -2221,7 +2221,7 @@ body.in-settings .reflect-os { filter: none; }
 .cal-date { color: rgba(255,255,255,.6); margin-top: 6px; font-size: clamp(15px,1.4vw,19px); }
 .cal-actions { display: flex; gap: 12px; }
 .pill-primary, .pill-ghost { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 22px; border-radius: 999px; font-size: 15px; font-weight: 500; cursor: pointer; }
-.pill-primary { border: 1px solid rgba(169,139,255,.6); background: rgba(169,139,255,.14); color: #d7ccff; }
+.pill-primary { border: 1px solid rgba(var(--accent-rgb),.6); background: rgba(var(--accent-rgb),.14); color: #dff7ff; }
 .pill-ghost { border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.04); color: #eef0f6; }
 
 .cal-body { display: grid; grid-template-columns: minmax(0,1fr) minmax(300px, 372px); gap: 22px; align-items: start; }
@@ -2230,7 +2230,7 @@ body.in-settings .reflect-os { filter: none; }
 
 .cal-view .tabs { display: inline-flex; gap: 6px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,.06); margin-bottom: 18px; }
 .cal-view .tabs button { border: none; background: transparent; color: rgba(255,255,255,.6); border-radius: 9px; padding: 7px 16px; font-size: 14px; cursor: pointer; }
-.cal-view .tabs button.is-selected { background: rgba(169,139,255,.2); color: #d7ccff; }
+.cal-view .tabs button.is-selected { background: rgba(var(--accent-rgb),.2); color: #dff7ff; }
 
 /* day timeline */
 .cal-timeline.day { display: grid; grid-template-columns: 58px 1fr; gap: 8px; }
@@ -2277,7 +2277,7 @@ body.in-settings .reflect-os { filter: none; }
 .cal-rel { color: var(--dawn); font-size: 13px; white-space: nowrap; }
 .cal-calrow { display: flex; align-items: center; gap: 12px; padding: 9px 0; }
 .cc-name { flex: 1; font-size: 15px; }
-.cc-check { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: rgba(169,139,255,.22); color: #d7ccff; font-size: 13px; }
+.cc-check { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: rgba(var(--accent-rgb),.22); color: #dff7ff; font-size: 13px; }
 
 .cal-foot { display: flex; align-items: center; justify-content: center; gap: 14px; color: rgba(255,255,255,.5); font-size: 13.5px; }
 .cal-foot .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.4); display: inline-block; margin-right: 6px; }
@@ -2613,3 +2613,270 @@ body.theme-light .edit-toolbar { background: rgba(255,255,255,.94); }
 .is-editing .compact-list li { font-size: 14px !important; }
 .is-editing .mirror-widget h2 { font-size: 14px !important; }
 .is-editing .song { font-size: 15px !important; }
+
+/* ---------- HUD: Jarvis-style mirror look ----------
+   True black so the glass stays a mirror, thin bright type, cyan glow that matches the assistant orb,
+   and a faint frame around the edges that keeps the centre clear for your reflection. */
+.time-sec {
+  margin-left: 0.28em;
+  font-size: 0.26em;
+  vertical-align: 0.24em;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.hud-sec {
+  position: relative;
+  width: min(100%, 420px);
+  height: 6px;
+  margin-top: 18px;
+  background: repeating-linear-gradient(90deg, rgba(var(--accent-rgb), 0.32) 0 1px, transparent 1px 7px);
+}
+
+.hud-sec i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.8);
+  transition: width 0.9s linear;
+}
+
+.layout-zone[data-zone$="right"] .hud-sec { margin-left: auto; }
+.layout-zone[data-zone$="centre"] .hud-sec { margin-inline: auto; }
+
+.hud-frame {
+  position: fixed;
+  inset: clamp(10px, 1.3vw, 20px);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.hud-frame::before,
+.hud-frame::after {
+  content: "";
+  position: absolute;
+  left: 64px;
+  right: 64px;
+  height: 1px;
+}
+
+.hud-frame::before {
+  top: 0;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.22) 18%, transparent 40%, transparent 60%, rgba(var(--accent-rgb), 0.22) 82%, transparent);
+}
+
+.hud-frame::after {
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.22) 18%, transparent 44%, transparent 56%, rgba(var(--accent-rgb), 0.22) 82%, transparent);
+}
+
+.hud-corner {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 0 solid rgba(var(--accent-rgb), 0.55);
+  filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.6));
+}
+
+.hud-corner.tl { top: 0; left: 0; border-top-width: 1.5px; border-left-width: 1.5px; }
+.hud-corner.tr { top: 0; right: 0; border-top-width: 1.5px; border-right-width: 1.5px; }
+.hud-corner.bl { bottom: 0; left: 0; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.hud-corner.br { bottom: 0; right: 0; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+.hud-status {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translate(-50%, -50%);
+  color: rgba(var(--accent-rgb), 0.62);
+  font-size: 10.5px;
+  letter-spacing: 0.36em;
+  white-space: nowrap;
+}
+
+.hud-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: hud-pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes hud-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.quick-nav.is-visible ~ .home-view .hud-status,
+.is-editing .hud-frame { opacity: 0.25; }
+
+body.theme-light .hud-frame { display: none; }
+
+/* Dark (mirror) theme: bright thin type with a soft cyan glow. */
+body:not(.theme-light) .home-view {
+  --muted: rgba(205, 238, 250, 0.6);
+}
+
+body:not(.theme-light) .home-view .time {
+  font-weight: 200;
+  color: #f2fcff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 28px rgba(var(--accent-rgb), 0.35);
+}
+
+body:not(.theme-light) .home-view .date {
+  margin-top: 14px;
+  color: rgba(236, 250, 255, 0.86);
+  font-weight: 300;
+}
+
+body:not(.theme-light) .home-view .greeting {
+  color: rgba(var(--accent-rgb), 0.78);
+  font-size: clamp(13px, 1vw, 16px);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+body:not(.theme-light) .home-view .mirror-widget h2 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  color: rgba(var(--accent-rgb), 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.45);
+}
+
+body:not(.theme-light) .home-view .mirror-widget h2::after {
+  content: "";
+  flex: 1;
+  min-width: 40px;
+  max-width: 180px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.55), transparent);
+}
+
+body:not(.theme-light) .home-view .layout-zone[data-zone$="right"] .mirror-widget h2 {
+  flex-direction: row-reverse;
+}
+
+body:not(.theme-light) .home-view .layout-zone[data-zone$="right"] .mirror-widget h2::after {
+  background: linear-gradient(270deg, rgba(var(--accent-rgb), 0.55), transparent);
+}
+
+body:not(.theme-light) .home-view .layout-zone[data-zone$="centre"] .mirror-widget h2 {
+  justify-content: center;
+}
+
+body:not(.theme-light) .home-view .layout-zone[data-zone$="centre"] .mirror-widget h2::after {
+  display: none;
+}
+
+body:not(.theme-light) .home-view .weather-icon {
+  text-shadow: 0 0 22px rgba(var(--accent-rgb), 0.7);
+}
+
+body:not(.theme-light) .home-view .weather-temp {
+  font-weight: 200;
+  color: #f2fcff;
+  text-shadow: 0 0 24px rgba(var(--accent-rgb), 0.3);
+}
+
+body:not(.theme-light) .home-view .weather-summary {
+  color: rgba(236, 250, 255, 0.86);
+  font-weight: 300;
+}
+
+body:not(.theme-light) .home-view .compact-list li {
+  font-weight: 300;
+}
+
+body:not(.theme-light) .home-view .compact-list time {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tasks: a small HUD diamond instead of a round tick, sitting next to its text on either side. */
+body:not(.theme-light) .home-view .check {
+  width: 11px;
+  height: 11px;
+  margin: 0 4px;
+  border: 1px solid rgba(var(--accent-rgb), 0.7);
+  border-radius: 1px;
+  transform: rotate(45deg);
+  cursor: pointer;
+}
+
+body:not(.theme-light) .home-view .check.is-done {
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.9);
+}
+
+body:not(.theme-light) .home-view .task-list li:has(.is-done) span {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.layout-zone[data-zone$="right"] .task-list li {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.layout-zone[data-zone$="right"] .task-list li .check { order: 3; }
+.layout-zone[data-zone$="right"] .task-list li small { order: 2; }
+
+body:not(.theme-light) .home-view .compact-list small {
+  font-size: 0.66em;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+body:not(.theme-light) .home-view .progress {
+  height: 1px;
+  background: rgba(var(--accent-rgb), 0.18);
+}
+
+body:not(.theme-light) .home-view .progress span {
+  box-shadow: 0 0 8px var(--accent);
+}
+
+body:not(.theme-light) .quick-nav {
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(0, 8, 12, 0.78);
+  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.12);
+}
+
+body:not(.theme-light) .nav-item {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+body:not(.theme-light) .nav-item.is-active {
+  color: #eafaff;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.5);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-dot { animation: none; }
+  .hud-sec i { transition: none; }
+}
+
+.layout-zone[data-zone$="right"] .weather-line { justify-content: flex-end; }
+.layout-zone[data-zone$="centre"] .weather-line { justify-content: center; }
+
+.is-editing .home-view .mirror-widget h2 { font-size: 10px !important; margin-bottom: 6px !important; }
+.is-editing .hud-sec { margin-top: 8px; }
+.is-editing .weather-line + .weather-summary + .muted { margin: 2px 0 0; font-size: 13px; }
