@@ -589,14 +589,41 @@ async function assistantApi(req, res, url) {
         headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
         // The system prompt and tools are the same on every request, so they're cached (the explicit
         // marker), and the growing conversation is cached too (the top-level field). Both make replies quicker.
-        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages })
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
       });
+      // Streaming: the reply is passed straight through to the mirror as it's written, so Jarvis
+      // can start speaking his first sentence while the rest is still on its way.
+      if (input.stream && response.ok && response.body) {
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+        let firstWord = 0, tail = "", usage = {}, model = "", stop = "";
+        for await (const chunk of response.body) {
+          res.write(chunk);
+          const text = tail + Buffer.from(chunk).toString("utf8");
+          const lines = text.split("\n");
+          tail = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            try {
+              const event = JSON.parse(line.slice(5));
+              if (event.type === "message_start") { model = event.message?.model || ""; usage = { ...event.message?.usage }; }
+              if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && !firstWord) firstWord = Date.now();
+              if (event.type === "message_delta") { Object.assign(usage, event.usage); stop = event.delta?.stop_reason || stop; }
+            } catch {}
+          }
+        }
+        res.end();
+        console.log(`${assistantConfig.name}: first words in ${firstWord ? ((firstWord - started) / 1000).toFixed(1) : "-"}s, done in ${((Date.now() - started) / 1000).toFixed(1)}s, ${model || assistantConfig.model}, ${usage.cache_read_input_tokens || 0} cached / ${usage.input_tokens || 0} new input tokens, ${usage.output_tokens || 0} output tokens${stop ? `, ${stop}` : ""}`);
+        return;
+      }
       const result = await response.json().catch(() => ({}));
       const usage = result.usage || {};
       console.log(`${assistantConfig.name}: ${((Date.now() - started) / 1000).toFixed(1)}s, ${result.model || assistantConfig.model}, ${usage.cache_read_input_tokens || 0} cached / ${usage.input_tokens || 0} new input tokens, ${usage.output_tokens || 0} output tokens${result.stop_reason ? `, ${result.stop_reason}` : ""}`);
       if (!response.ok) return json(res, response.status === 401 ? 503 : 502, { error: response.status === 401 ? "The Anthropic API key in reflect-os.config.json was rejected." : result.error?.message || "The assistant is unavailable right now." });
       return json(res, 200, { content: result.content || [], stop_reason: result.stop_reason });
-    } catch { return json(res, 502, { error: "The assistant could not reach Claude. Check the internet connection." }); }
+    } catch {
+      if (res.headersSent) return res.end();
+      return json(res, 502, { error: "The assistant could not reach Claude. Check the internet connection." });
+    }
   }
 
   if (url.pathname === "/api/assistant/speak") {
