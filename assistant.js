@@ -95,7 +95,7 @@
   function showReply(text) {
     text = String(text || "");
     srEl.textContent = text;
-    HUD.decode(replyEl, text, { cps: Math.max(45, Math.min(90, text.length / 3)), scramble: 140 });
+    HUD.decode(replyEl, text, { cps: Math.max(70, Math.min(140, text.length / 2)), scramble: 120 });
   }
   // A short log of what Jarvis just did ("Lights on", "Task added"), shown under the reply.
   // Lines arrive one after another, each sliding in and decoding like a system readout.
