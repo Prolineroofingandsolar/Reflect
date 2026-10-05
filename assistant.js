@@ -90,7 +90,7 @@
     item.className = failed ? "is-error" : "";
     item.textContent = text.replace(/\.$/, "");
     logEl.append(item);
-    while (logEl.children.length > 4) logEl.firstElementChild.remove();
+    while (logEl.children.length > 5) logEl.firstElementChild.remove();
   }
   function clearLog() { logEl.replaceChildren(); }
 
@@ -130,8 +130,8 @@
       const date = new Date(raw);
       return Number.isNaN(date.valueOf()) || date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }).slice(0, 10);
-    lines.push(events.length ? "Calendar:" : "Calendar: nothing coming up.");
-    events.forEach((e) => lines.push(`- ${e.title} | ${e.allDay ? `${String(e.start).slice(0, 10)} all day` : (e.start || `${e.date} ${e.time}`)}${e.location ? ` | ${e.location}` : ""}`));
+    lines.push(events.length ? "Calendar (id | source | title | when | location):" : "Calendar: nothing coming up.");
+    events.forEach((e) => lines.push(`- ${e.id || "?"} | ${e.source === "google" ? "Google" : "on-device"} | ${e.title} | ${e.allDay ? `${String(e.start).slice(0, 10)} all day` : (e.start || `${e.date} ${e.time}`)}${e.location ? ` | ${e.location}` : ""}`));
     const tasks = sampleData.tasks.filter((t) => !t.done).slice(0, 20);
     lines.push(tasks.length ? "Open tasks (id | title | when | category):" : "Open tasks: none.");
     tasks.forEach((t) => lines.push(`- ${t.id} | ${t.title} | ${t.when || "Today"} | ${t.category || "Personal"}${t.priority ? " | high priority" : ""}`));
@@ -142,6 +142,11 @@
       lines.push("Smart home devices (entity id | name | state):");
       homeAssistantEntities.slice(0, 80).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
     }
+    const timers = loadTimers();
+    lines.push(timers.length ? "Timers and reminders (id | kind | label | due):" : "Timers and reminders: none running.");
+    timers.forEach((t) => lines.push(`- ${t.id} | ${t.kind} | ${t.label} | ${new Date(t.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", second: t.kind === "timer" ? "2-digit" : undefined })}`));
+    const shown = Object.entries(profile.widgets || {}).filter(([, w]) => w.visible).map(([id]) => id);
+    lines.push(`Home widgets showing: ${shown.join(", ") || "none"}.`);
     lines.push(`Display: brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}.`);
     return lines.join("\n");
   }
@@ -212,6 +217,76 @@
       saveDeviceData(); renderCalendarPage(); renderHome();
       return `Added "${title}" on ${input.date} at ${input.time}.`;
     }
+    if (tool === "update_task") {
+      const task = sampleData.tasks.find((t) => t.id === input.task_id);
+      if (!task) throw new Error("That task is not on the list.");
+      if (input.delete) {
+        sampleData.tasks = sampleData.tasks.filter((t) => t !== task);
+        saveDeviceData(); renderTaskPage(); renderHome();
+        return `Deleted task "${task.title}".`;
+      }
+      if (typeof input.done === "boolean") task.done = input.done;
+      if (input.title) task.title = String(input.title).trim().slice(0, 80) || task.title;
+      if (input.when) task.when = input.when;
+      if (typeof input.high_priority === "boolean") task.priority = input.high_priority;
+      saveDeviceData(); renderTaskPage(); renderHome();
+      return `Updated task "${task.title}".`;
+    }
+    if (tool === "delete_event") {
+      const event = sampleData.events.find((e) => e.id === input.event_id);
+      if (!event) throw new Error("That event is not on the calendar.");
+      if (event.source === "google") throw new Error("Google Calendar events can only be deleted in Google Calendar.");
+      sampleData.events = sampleData.events.filter((e) => e !== event);
+      saveDeviceData(); renderCalendarPage(); renderHome();
+      return `Deleted "${event.title}".`;
+    }
+    if (tool === "set_timer") {
+      const ms = (Number(input.minutes) || 0) * 60000 + (Number(input.seconds) || 0) * 1000;
+      if (ms < 1000 || ms > 24 * 3600000) throw new Error("Timers can run from one second to 24 hours.");
+      const label = String(input.label || "").trim().slice(0, 40) || durationText(ms);
+      addTimer({ kind: "timer", label, at: Date.now() + ms });
+      return `Timer set: ${label}, ${durationText(ms)}.`;
+    }
+    if (tool === "set_reminder") {
+      const text = String(input.text || "").trim().slice(0, 120);
+      if (!text || !/^\d{2}:\d{2}$/.test(input.time || "")) throw new Error("A reminder needs some text and an HH:MM time.");
+      let at;
+      if (input.date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error("The date must be YYYY-MM-DD.");
+        at = new Date(`${input.date}T${input.time}:00`).getTime();
+      } else {
+        const [h, m] = input.time.split(":").map(Number);
+        const next = new Date(); next.setHours(h, m, 0, 0);
+        if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+        at = next.getTime();
+      }
+      if (!Number.isFinite(at) || at <= Date.now()) throw new Error("That time has already passed.");
+      addTimer({ kind: "reminder", label: text, at });
+      return `Reminder set for ${new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}: ${text}.`;
+    }
+    if (tool === "cancel_timer") {
+      const timers = loadTimers();
+      const keep = input.id === "all" ? [] : timers.filter((t) => t.id !== input.id);
+      if (keep.length === timers.length) throw new Error("No timer or reminder with that id.");
+      saveTimers(keep);
+      return input.id === "all" ? "Cancelled every timer and reminder." : "Cancelled.";
+    }
+    if (tool === "set_weather_location") {
+      const query = String(input.place || "").trim();
+      if (query.length < 2) throw new Error("Which place?");
+      const { locations = [] } = await api(`/api/weather/locations?q=${encodeURIComponent(query)}`);
+      if (!locations.length) throw new Error(`I couldn't find ${query}.`);
+      await selectWeatherLocation(locations[0]);
+      return `Weather now set to ${[locations[0].name, locations[0].country].filter(Boolean).join(", ")}.`;
+    }
+    if (tool === "show_widget") {
+      const widget = profile.widgets?.[input.widget], addOn = baseWidgets[input.widget]?.addOn;
+      if (!widget || (addOn && !addOnInstalled(addOn))) throw new Error(`The ${input.widget} widget needs its add-on installed first, in Settings.`);
+      if (input.widget === "photos" && input.visible && !photoRecords.length) throw new Error("There are no photos on the mirror yet. Add some in Settings, Photos.");
+      widget.visible = Boolean(input.visible);
+      saveProfile(); renderHome(); renderWidgetSettings();
+      return `${input.widget} widget ${widget.visible ? "shown" : "hidden"}.`;
+    }
     if (tool === "set_display") {
       if (Number.isFinite(input.brightness)) profile.brightness = Math.max(30, Math.min(100, Math.round(input.brightness)));
       if (typeof input.night_mode === "boolean") profile.nightMode = input.night_mode;
@@ -239,13 +314,21 @@
     let reply = "";
     try {
       A.conversation.push({ role: "user", content: [{ type: "text", text: `[Mirror context]\n${await mirrorContext()}\n\nThey said: ${text}` }] });
-      for (let step = 0; step < 6; step++) {
+      let paused = false;
+      for (let step = 0; step < 8; step++) {
         const result = await api("/api/assistant/chat", { method: "POST", body: JSON.stringify({ messages: A.conversation }) });
         const content = Array.isArray(result.content) ? result.content : [];
         if (result.stop_reason === "refusal") { reply = "I'm afraid that's one I can't help with."; A.conversation = []; break; }
-        A.conversation.push({ role: "assistant", content });
-        const said = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
-        const uses = content.filter((b) => b.type === "tool_use");
+        content.filter((b) => b.type === "server_tool_use" && b.name === "web_search").forEach((b) => logAction(`Searched the web: ${b.input?.query || ""}`));
+        // A long web search can pause mid-turn. Sending the paused turn back resumes it, and the
+        // continuation belongs to that same assistant turn.
+        if (paused) A.conversation.at(-1).content.push(...content);
+        else A.conversation.push({ role: "assistant", content });
+        paused = result.stop_reason === "pause_turn";
+        if (paused) continue;
+        const turn = A.conversation.at(-1).content;
+        const said = turn.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+        const uses = turn.filter((b) => b.type === "tool_use");
         if (result.stop_reason !== "tool_use" || !uses.length) { reply = said; break; }
         if (said) showReply(said);
         const results = await Promise.all(uses.map(async (use) => {
@@ -577,6 +660,48 @@
     ctx.restore();
     requestAnimationFrame(draw);
   }
+
+  // ---------- Timers and reminders ----------
+  // Kept in localStorage so they survive a reload; a chip on the glass counts them down.
+  const timersKey = "reflect-os-assistant-timers";
+  const timerChip = document.createElement("div");
+  timerChip.className = "jv-timers";
+  timerChip.setAttribute("aria-live", "off");
+  document.body.appendChild(timerChip);
+  function loadTimers() { try { const list = JSON.parse(localStorage.getItem(timersKey) || "[]"); return Array.isArray(list) ? list : []; } catch { return []; } }
+  function saveTimers(list) { try { localStorage.setItem(timersKey, JSON.stringify(list)); } catch {} renderTimers(); }
+  function addTimer(timer) { const list = loadTimers(); list.push({ id: `t${Date.now().toString(36)}`, ...timer }); list.sort((a, b) => a.at - b.at); saveTimers(list.slice(-12)); }
+  function durationText(ms) {
+    const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+    return [h && `${h} hour${h === 1 ? "" : "s"}`, m && `${m} minute${m === 1 ? "" : "s"}`, sec && `${sec} second${sec === 1 ? "" : "s"}`].filter(Boolean).join(" ") || "0 seconds";
+  }
+  function clockText(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+    return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  function renderTimers() {
+    const now = Date.now();
+    const list = loadTimers().filter((t) => t.kind === "timer" || t.at - now < 3600000);
+    timerChip.hidden = !list.length;
+    timerChip.innerHTML = list.slice(0, 3).map((t) => `<span class="jv-timer"><b>${t.kind === "timer" ? clockText(t.at - now) : new Date(t.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</b>${esc(t.label)}</span>`).join("");
+  }
+  function announce(text) {
+    if (A.busy || A.state === "speaking") return setTimeout(() => announce(text), 1500);
+    openStage();
+    showHeard("");
+    clearLog();
+    chime(); setTimeout(chime, 450);
+    setTimeout(() => speak(text), 700);
+  }
+  setInterval(() => {
+    const now = Date.now(), list = loadTimers(), due = list.filter((t) => t.at <= now);
+    if (due.length) {
+      saveTimers(list.filter((t) => t.at > now));
+      // Skip anything that went off long ago while the mirror was off.
+      due.filter((t) => now - t.at < 10 * 60000).forEach((t) => announce(t.kind === "timer" ? `Your ${t.label} timer is done.` : `A reminder: ${t.label}.`));
+    } else renderTimers();
+  }, 1000);
+  renderTimers();
 
   // ---------- Wiring ----------
   mini.addEventListener("click", activate);
