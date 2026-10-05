@@ -44,6 +44,13 @@ const assistantConfig = {
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
   openaiKey: process.env.OPENAI_API_KEY || localConfig.openaiApiKey || "",
+  // Optional: VoiceStudio (github.com/debpalash/VoiceStudio) runs a natural voice free on this computer.
+  // Set voiceStudioUrl (its app serves http://127.0.0.1:3900) and voiceStudioVoice to a saved voice profile.
+  // It takes priority over ElevenLabs and OpenAI.
+  voiceStudioUrl: String(localConfig.voiceStudioUrl || "").trim().replace(/\/+$/, ""),
+  voiceStudioVoice: String(localConfig.voiceStudioVoice || "").trim(),
+  voiceStudioModel: String(localConfig.voiceStudioModel || "").trim(),
+  voiceStudioKey: String(localConfig.voiceStudioApiKey || "").trim(),
   // Optional: an ElevenLabs key gives the most natural, film-like voice. It takes priority over OpenAI's voice.
   elevenLabsKey: process.env.ELEVENLABS_API_KEY || localConfig.elevenLabsApiKey || "",
   elevenLabsVoice: String(localConfig.elevenLabsVoiceId || "").trim() || "JBFqnCBsd6RMkjVDRZzb",
@@ -498,6 +505,10 @@ async function api(req, res, url) {
   return json(res, 404, { error: "Not found" });
 }
 
+function voiceProvider() {
+  return assistantConfig.voiceStudioUrl ? "VoiceStudio" : assistantConfig.elevenLabsKey ? "ElevenLabs" : assistantConfig.openaiKey ? "OpenAI" : "";
+}
+
 function assistantSystemPrompt() {
   const name = assistantConfig.name;
   return `You are ${name}, the AI that lives in a smart mirror called Reflect. Think of the AI butler from the Iron Man films: calm, quick, quietly witty and unfailingly competent, with a dry British manner.
@@ -556,7 +567,7 @@ async function rawBody(req, limit) {
 
 async function assistantApi(req, res, url) {
   if (url.pathname === "/api/assistant/status" && req.method === "GET") {
-    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(assistantConfig.elevenLabsKey || assistantConfig.openaiKey), voiceProvider: assistantConfig.elevenLabsKey ? "ElevenLabs" : assistantConfig.openaiKey ? "OpenAI" : "", serverTranscription: Boolean(assistantConfig.openaiKey) });
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: voiceProvider(), serverTranscription: Boolean(assistantConfig.openaiKey) });
   }
   if (req.method !== "POST") return json(res, 404, { error: "Not found" });
   if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
@@ -587,11 +598,19 @@ async function assistantApi(req, res, url) {
 
   if (url.pathname === "/api/assistant/speak") {
     if (!type.startsWith("application/json")) return json(res, 415, { error: "Send JSON." });
-    if (!assistantConfig.elevenLabsKey && !assistantConfig.openaiKey) return json(res, 409, { error: "Server voice is not configured." });
+    const provider = voiceProvider();
+    if (!provider) return json(res, 409, { error: "Server voice is not configured." });
     const text = String((await body(req)).text || "").trim().slice(0, 1500);
     if (!text) return json(res, 400, { error: "Nothing to say." });
     try {
-      const response = assistantConfig.elevenLabsKey
+      const response = provider === "VoiceStudio"
+        // VoiceStudio speaks the OpenAI speech API on this computer: a saved profile as `voice`, an engine as `model`.
+        ? await fetch(`${assistantConfig.voiceStudioUrl}/v1/audio/speech`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(assistantConfig.voiceStudioKey ? { Authorization: `Bearer ${assistantConfig.voiceStudioKey}` } : {}) },
+          body: JSON.stringify({ input: text, response_format: "mp3", ...(assistantConfig.voiceStudioVoice ? { voice: assistantConfig.voiceStudioVoice } : {}), ...(assistantConfig.voiceStudioModel ? { model: assistantConfig.voiceStudioModel } : {}) })
+        })
+        : provider === "ElevenLabs"
         ? await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(assistantConfig.elevenLabsVoice)}?output_format=mp3_44100_128`, {
           method: "POST",
           headers: { "xi-api-key": assistantConfig.elevenLabsKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
@@ -602,11 +621,11 @@ async function assistantApi(req, res, url) {
           headers: { Authorization: `Bearer ${assistantConfig.openaiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model: assistantConfig.ttsModel, voice: assistantConfig.voice, input: text, response_format: "mp3", instructions: "Calm, warm and precise, with a refined British accent and a hint of dry wit, like a capable AI butler." })
         });
-      if (!response.ok) { console.log(`Voice: ${assistantConfig.elevenLabsKey ? "ElevenLabs" : "OpenAI"} returned ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`); return json(res, 502, { error: "The server voice is unavailable." }); }
+      if (!response.ok) { console.log(`Voice: ${provider} returned ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`); return json(res, 502, { error: "The server voice is unavailable." }); }
       const audio = Buffer.from(await response.arrayBuffer());
       res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.length });
       return res.end(audio);
-    } catch { return json(res, 502, { error: "The server voice is unavailable." }); }
+    } catch { if (provider === "VoiceStudio") console.log(`Voice: couldn't reach VoiceStudio at ${assistantConfig.voiceStudioUrl}. Is the app open?`); return json(res, 502, { error: "The server voice is unavailable." }); }
   }
 
   if (url.pathname === "/api/assistant/transcribe") {

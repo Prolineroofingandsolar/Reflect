@@ -8,6 +8,8 @@
   "assistantName": "Jarvis",
   "assistantWakeWord": true,
   "openaiApiKey": "",
+  "voiceStudioUrl": "",
+  "voiceStudioVoice": "",
   "elevenLabsApiKey": "",
   "elevenLabsVoiceId": ""
 }
