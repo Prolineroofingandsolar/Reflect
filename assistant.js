@@ -332,6 +332,14 @@
       return `${input.widget} widget ${widget.visible ? "shown" : "hidden"}.`;
     }
     if (tool === "change_voice") {
+      if (A.status?.builtInVoice) {
+        const wanted = String(input.name || "").toLowerCase();
+        const current = kokoroVoices.indexOf(kokoroVoice());
+        const next = wanted ? kokoroVoices.find((v) => v.includes(wanted)) : kokoroVoices[(current + 1) % kokoroVoices.length];
+        if (!next) throw new Error(`There's no voice called ${input.name}. I have ${kokoroVoices.map((v) => v.slice(3)).join(", ")}.`);
+        try { localStorage.setItem(kokoroKey, next); } catch {}
+        return `Voice changed to ${next.slice(3)} (${next.startsWith("bf") ? "British woman" : "British man"}). Voices: ${kokoroVoices.map((v) => v.slice(3)).join(", ")}.`;
+      }
       if (A.status?.serverVoice) throw new Error(`I'm using the ${A.status.voiceProvider || "server"} voice, which is set in reflect-os.config.json.`);
       const voices = britishVoices();
       if (!voices.length) throw new Error("This browser has no British voices to choose from.");
@@ -488,12 +496,12 @@
       audio.play().catch(reject);
     }).finally(() => { URL.revokeObjectURL(url); A.currentAudio = null; A.outAnalyser = null; });
   }
-  async function speakServer(text) {
+  async function speakServer(text, make = fetchSpeech) {
     const run = (A.speakRun = (A.speakRun || 0) + 1);
     const chunks = speechChunks(text);
     // Each request starts as soon as the previous one has finished generating, not playing.
     let chain = Promise.resolve();
-    const pending = chunks.map((chunk) => (chain = chain.then(() => fetchSpeech(chunk))));
+    const pending = chunks.map((chunk) => (chain = chain.then(() => make(chunk))));
     pending.forEach((p) => p.catch(() => {}));
     for (let i = 0; i < chunks.length; i++) {
       let url;
@@ -507,6 +515,38 @@
       await playSpeech(url);
     }
   }
+  // ---------- Built-in voice (Kokoro, in a worker) ----------
+  // Set "builtInVoice" in reflect-os.config.json (for example "bm_george") to use it.
+  const kokoroVoices = ["bm_george", "bm_fable", "bm_lewis", "bm_daniel", "bf_emma", "bf_isabella", "bf_alice", "bf_lily"];
+  const kokoroKey = "reflect-os-assistant-kokoro-voice";
+  const K = { worker: null, ready: false, failed: false, nextId: 0, waiting: new Map() };
+  function kokoroVoice() {
+    let saved = "";
+    try { saved = localStorage.getItem(kokoroKey) || ""; } catch {}
+    return kokoroVoices.includes(saved) ? saved : kokoroVoices.includes(A.status?.builtInVoice) ? A.status.builtInVoice : "bm_george";
+  }
+  function kokoroCall(message) {
+    if (!K.worker) {
+      K.worker = new Worker("voice-worker.js", { type: "module" });
+      K.worker.onmessage = ({ data }) => { const done = K.waiting.get(data.id); if (!done) return; K.waiting.delete(data.id); data.ok ? done.resolve(data) : done.reject(new Error(data.error)); };
+      K.worker.onerror = (event) => { K.failed = true; K.waiting.forEach((w) => w.reject(new Error(event.message || "Voice worker failed"))); K.waiting.clear(); };
+    }
+    const id = ++K.nextId;
+    return new Promise((resolve, reject) => { K.waiting.set(id, { resolve, reject }); K.worker.postMessage({ id, ...message }); });
+  }
+  // Loads the model as soon as the mirror starts, so the first reply doesn't wait for it.
+  function warmKokoro() {
+    if (!A.status?.builtInVoice || K.ready || K.failed) return;
+    const started = performance.now();
+    kokoroCall({ type: "load" })
+      .then(() => { K.ready = true; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); })
+      .catch((error) => { K.failed = true; console.warn("Built-in voice unavailable:", error.message); });
+  }
+  async function makeKokoro(text) {
+    const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice() });
+    return URL.createObjectURL(blob);
+  }
+
   function stopSpeaking() {
     A.speakRun = (A.speakRun || 0) + 1;
     if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -518,7 +558,9 @@
     setState("speaking");
     pauseRecognition();
     try {
-      if (A.status?.serverVoice) await speakServer(text).catch(() => speakBrowser(text));
+      // Until the built-in voice has finished downloading, the browser voice fills in.
+      if (A.status?.builtInVoice && K.ready) await speakServer(text, makeKokoro).catch(() => speakBrowser(text));
+      else if (A.status?.serverVoice && !A.status?.builtInVoice) await speakServer(text).catch(() => speakBrowser(text));
       else await speakBrowser(text);
     } catch {}
     resumeRecognition();
@@ -895,6 +937,7 @@
   async function init() {
     try { A.status = await api("/api/assistant/status"); }
     catch { root.hidden = true; return; }
+    warmKokoro();
     el(".jv-name").textContent = name().toUpperCase().split("").join(" ");
     typeInput.placeholder = `Or type to ${name()}…`;
     mini.setAttribute("aria-label", `Talk to ${name()}`);
