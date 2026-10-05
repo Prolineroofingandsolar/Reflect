@@ -598,7 +598,7 @@ async function assistantApi(req, res, url) {
 
   if (url.pathname === "/api/assistant/speak") {
     if (!type.startsWith("application/json")) return json(res, 415, { error: "Send JSON." });
-    const provider = voiceProvider();
+    const provider = voiceProvider(), voiceStarted = Date.now();
     if (!provider) return json(res, 409, { error: "Server voice is not configured." });
     const text = String((await body(req)).text || "").trim().slice(0, 1500);
     if (!text) return json(res, 400, { error: "Nothing to say." });
@@ -623,6 +623,7 @@ async function assistantApi(req, res, url) {
         });
       if (!response.ok) { console.log(`Voice: ${provider} returned ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`); return json(res, 502, { error: "The server voice is unavailable." }); }
       const audio = Buffer.from(await response.arrayBuffer());
+      console.log(`Voice: ${provider}, ${((Date.now() - voiceStarted) / 1000).toFixed(1)}s for ${text.length} characters`);
       res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.length });
       return res.end(audio);
     } catch { if (provider === "VoiceStudio") console.log(`Voice: couldn't reach VoiceStudio at ${assistantConfig.voiceStudioUrl}. Is the app open?`); return json(res, 502, { error: "The server voice is unavailable." }); }

@@ -456,10 +456,20 @@
       });
     });
   }
-  async function speakServer(text) {
+  // Server voices take a moment per request, so the reply is spoken a sentence at a time: the first
+  // sentence plays as soon as it's ready while the next one is already being generated.
+  function speechChunks(text) {
+    const sentences = text.match(/[^.!?]+[.!?]*\s*/g)?.map((x) => x.trim()).filter(Boolean) || [text];
+    const chunks = [];
+    sentences.forEach((x) => { const last = chunks.length - 1; if (last >= 0 && (chunks[last].length < 25 || x.length < 12)) chunks[last] += ` ${x}`; else chunks.push(x); });
+    return chunks;
+  }
+  async function fetchSpeech(text) {
     const response = await fetch("/api/assistant/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
     if (!response.ok) throw new Error("Server voice unavailable");
-    const url = URL.createObjectURL(await response.blob());
+    return URL.createObjectURL(await response.blob());
+  }
+  function playSpeech(url) {
     const audio = new Audio(url);
     A.currentAudio = audio;
     const ac = audioContext();
@@ -471,14 +481,34 @@
         source.connect(A.outAnalyser); A.outAnalyser.connect(ac.destination);
       } catch { A.outAnalyser = null; }
     }
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       audio.onended = resolve;
       audio.onpause = resolve;
       audio.onerror = () => reject(new Error("Playback failed"));
       audio.play().catch(reject);
     }).finally(() => { URL.revokeObjectURL(url); A.currentAudio = null; A.outAnalyser = null; });
   }
+  async function speakServer(text) {
+    const run = (A.speakRun = (A.speakRun || 0) + 1);
+    const chunks = speechChunks(text);
+    // Each request starts as soon as the previous one has finished generating, not playing.
+    let chain = Promise.resolve();
+    const pending = chunks.map((chunk) => (chain = chain.then(() => fetchSpeech(chunk))));
+    pending.forEach((p) => p.catch(() => {}));
+    for (let i = 0; i < chunks.length; i++) {
+      let url;
+      try { url = await pending[i]; }
+      catch (error) {
+        if (i === 0) throw error;
+        if (A.speakRun === run) await speakBrowser(chunks.slice(i).join(" "));
+        return;
+      }
+      if (A.speakRun !== run) { URL.revokeObjectURL(url); continue; }
+      await playSpeech(url);
+    }
+  }
   function stopSpeaking() {
+    A.speakRun = (A.speakRun || 0) + 1;
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (A.currentAudio) { A.currentAudio.pause(); A.currentAudio = null; }
   }
