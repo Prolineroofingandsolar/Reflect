@@ -9,8 +9,8 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%2356d8ff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.10">
-  <link rel="stylesheet" href="assistant.css?v=0.9.10">
+  <link rel="stylesheet" href="styles.css?v=0.9.11">
+  <link rel="stylesheet" href="assistant.css?v=0.9.11">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -27,7 +27,7 @@
   <section class="view home-view is-active" id="view-home" aria-label="Home">
     <div class="hud-frame" aria-hidden="true">
       <i class="hud-corner tl"></i><i class="hud-corner tr"></i><i class="hud-corner bl"></i><i class="hud-corner br"></i>
-      <div class="hud-status"><span class="hud-dot"></span>REFLECT OS · ONLINE</div>
+      <div class="hud-status"><span class="hud-dot"></span><span class="hud-status-text">REFLECT OS · ONLINE</span></div><i class="hud-scan"></i>
     </div>
     <div class="layout-grid" id="layoutGrid" aria-label="Customisable mirror layout"></div>
     <button class="home-edit-fab" id="homeEditFab" type="button" title="Edit layout">✎ <span>Edit layout</span></button>
@@ -454,7 +454,8 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.10"></script>
-<script src="assistant.js?v=0.9.10"></script>
+<script src="app.js?v=0.9.11"></script>
+<script src="hud-motion.js?v=0.9.11"></script>
+<script src="assistant.js?v=0.9.11"></script>
 </body>
 </html>

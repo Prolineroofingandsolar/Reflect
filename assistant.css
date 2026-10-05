@@ -3,6 +3,7 @@
   --jv: 86, 216, 255;
   --jv-text: rgba(236, 250, 255, 0.96);
   --jv-muted: rgba(180, 225, 240, 0.62);
+  --accent-rgb: var(--jv);
 }
 
 .jv-mini {
@@ -162,4 +163,184 @@ body.is-editing .jv-mini { opacity: 0; pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .jv-mini, .jv-mini-core { animation: none; }
+}
+
+/* Action log: what Jarvis just did, as HUD readout lines under the reply. */
+.jv-log {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  font: 500 11.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(var(--jv), 0.8);
+}
+.jv-log li {
+  position: relative;
+  animation: jv-log-in 420ms cubic-bezier(.2, .8, .2, 1) both;
+}
+.jv-log li::before {
+  content: "\25B8  ";
+  color: rgba(var(--jv), 0.55);
+}
+.jv-log li.is-error { color: rgba(255, 160, 140, 0.85); }
+@keyframes jv-log-in {
+  0% { opacity: 0; transform: translateX(-18px); clip-path: inset(0 100% 0 0); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: none; clip-path: inset(0 0 0 0); }
+}
+
+/* Running timers and upcoming reminders, counted down at the top of the glass. */
+.jv-timers {
+  position: fixed;
+  top: clamp(84px, 7.5vw, 100px);
+  left: 50%;
+  z-index: 9;
+  display: flex;
+  gap: 18px;
+  transform: translateX(-50%);
+  font: 500 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(180, 225, 240, 0.7);
+  pointer-events: none;
+}
+.jv-timers[hidden] { display: none; }
+.jv-timer b {
+  margin-right: 8px;
+  font-weight: 500;
+  color: rgb(86, 216, 255);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(86, 216, 255, 0.6);
+}
+body.is-editing .jv-timers { display: none; }
+
+.jv-timer { position: relative; display: inline-block; padding: 4px 8px 6px; }
+.jv-timer i {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 1px;
+  background: rgb(86, 216, 255);
+  box-shadow: 0 0 6px rgba(86, 216, 255, 0.8);
+  transform-origin: left;
+  transition: transform 1s linear;
+}
+.jv-timer.is-new { animation: jv-lock-on 700ms cubic-bezier(.2, .8, .2, 1) both; }
+.jv-timer.is-new::before,
+.jv-timer.is-new::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  border: 1px solid rgb(86, 216, 255);
+  animation: jv-brackets 700ms cubic-bezier(.2, .8, .2, 1) both;
+}
+.jv-timer.is-new::before { left: 0; border-right: 0; }
+.jv-timer.is-new::after { right: 0; border-left: 0; }
+.jv-timer.is-urgent b { animation: jv-urgent 1s ease-out; color: #fff; text-shadow: 0 0 14px rgb(86, 216, 255), 0 0 28px rgba(86, 216, 255, 0.8); }
+@keyframes jv-lock-on { 0% { opacity: 0; letter-spacing: 0.6em; filter: blur(4px); } 60% { opacity: 1; filter: none; } 100% { letter-spacing: 0.16em; } }
+@keyframes jv-brackets { 0% { opacity: 0; transform: scaleY(2.2); } 50% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes jv-urgent { from { transform: scale(1.25); } }
+
+/* ---------- Stage motion ---------- */
+.jv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Opening: the stage projects open from a bright horizontal line, like a hologram emitter. */
+.jv.is-booting .jv-stage { animation: jv-project 650ms cubic-bezier(.2, .8, .2, 1) both; }
+.jv.is-booting .jv-stage::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #fff 30%, rgb(var(--jv)) 50%, #fff 70%, transparent);
+  box-shadow: 0 0 24px rgba(var(--jv), 1), 0 0 60px rgba(var(--jv), 0.6);
+  pointer-events: none;
+  animation: jv-emitter 700ms cubic-bezier(.2, .8, .2, 1) both;
+}
+.jv.is-closing .jv-stage { animation: jv-unproject 380ms cubic-bezier(.6, 0, .8, .2) both; }
+@keyframes jv-project {
+  0% { clip-path: inset(50% 0 50% 0); }
+  35% { clip-path: inset(49.6% 0 49.6% 0); }
+  100% { clip-path: inset(0 0 0 0); }
+}
+@keyframes jv-unproject {
+  0% { clip-path: inset(0 0 0 0); opacity: 1; }
+  70% { clip-path: inset(49.6% 0 49.6% 0); opacity: 1; }
+  100% { clip-path: inset(50% 30% 50% 30%); opacity: 0; }
+}
+@keyframes jv-emitter {
+  0% { transform: scaleX(0); opacity: 1; }
+  35% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+.jv.is-booting .jv-state,
+.jv.is-booting .jv-heard,
+.jv.is-booting .jv-type { animation: hud-rise 600ms 700ms cubic-bezier(.2, .8, .2, 1) both; }
+.jv.is-booting .jv-type { animation-delay: 850ms; }
+@keyframes hud-rise { from { opacity: 0; transform: translateY(10px); } }
+
+/* Corner brackets that lock onto the edges of the stage. */
+.jv-br {
+  position: absolute;
+  width: clamp(28px, 3vw, 44px);
+  height: clamp(28px, 3vw, 44px);
+  border: 0 solid rgba(var(--jv), 0.5);
+  pointer-events: none;
+}
+.jv-br.tl { top: clamp(24px, 5vh, 56px); left: clamp(16px, 5vw, 72px); border-top-width: 1.5px; border-left-width: 1.5px; }
+.jv-br.tr { top: clamp(24px, 5vh, 56px); right: clamp(16px, 5vw, 72px); border-top-width: 1.5px; border-right-width: 1.5px; }
+.jv-br.bl { bottom: clamp(24px, 5vh, 56px); left: clamp(16px, 5vw, 72px); border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.jv-br.br { bottom: clamp(24px, 5vh, 56px); right: clamp(16px, 5vw, 72px); border-bottom-width: 1.5px; border-right-width: 1.5px; }
+.jv.is-booting .jv-br { animation: hud-corner-in 800ms 300ms cubic-bezier(.2, .8, .2, 1) both; }
+
+/* Side telemetry: small live readouts down each edge of the stage. */
+.jv-tele {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  gap: 10px;
+  transform: translateY(-50%);
+  font: 500 10.5px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.22em;
+  color: rgba(var(--jv), 0.55);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.jv-tele div { padding-left: 10px; border-left: 1px solid rgba(var(--jv), 0.3); }
+.jv-tele-l { left: clamp(28px, 6vw, 96px); text-align: left; }
+.jv-tele-r { right: clamp(28px, 6vw, 96px); text-align: right; }
+.jv-tele-r div { padding: 0 10px 0 0; border-left: 0; border-right: 1px solid rgba(var(--jv), 0.3); }
+@media (max-width: 900px) { .jv-tele { display: none; } }
+
+/* Thinking: a light scanning back and forth under the state label. */
+.jv-state { position: relative; }
+.jv[data-state="thinking"] .jv-state::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 120px;
+  height: 1px;
+  margin-left: -60px;
+  background: linear-gradient(90deg, transparent, rgb(var(--jv)), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: jv-scan 1.1s ease-in-out infinite alternate;
+}
+@keyframes jv-scan { from { background-position: -100% 0; } to { background-position: 200% 0; } }
+
+/* Speaking: the reply glows softly in time. */
+.jv[data-state="speaking"] .jv-reply { animation: jv-glow 2.4s ease-in-out infinite; }
+@keyframes jv-glow { 50% { text-shadow: 0 0 30px rgba(var(--jv), 0.45); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .jv-stage, .jv-stage::before, .jv-br, .jv-log li, .jv-timer, .jv-timer b, .jv-reply, .jv-state::after { animation: none !important; }
 }

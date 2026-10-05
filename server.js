@@ -37,6 +37,8 @@ const assistantConfig = {
   anthropicKey: process.env.ANTHROPIC_API_KEY || localConfig.anthropicApiKey || "",
   // Only needed for an organisation-level key that is not scoped to a workspace.
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
+  // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
+  address: String(localConfig.assistantAddress ?? "sir").trim(),
   model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-opus-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
@@ -500,11 +502,13 @@ Everything you write is spoken aloud by a text-to-speech voice and shown briefly
 - Answer in one to three short spoken sentences. Lead with the answer. No lists, no markdown, no emoji, no URLs.
 - Say numbers, times and temperatures the way a person would say them out loud.
 - A touch of dry humour is welcome; never let it get in the way of the answer.
-- Use the person's name now and then, not in every reply.
+- ${assistantConfig.address ? `Address the person as "${assistantConfig.address}" now and then, the way the butler addresses Tony Stark; use their name only occasionally.` : "Use the person's name now and then, not in every reply."}
 
 Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
 
-Use your tools to act on the mirror: change screens, control smart-home devices, control music, add or complete tasks, add calendar events, and adjust the display. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
+When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
+
+Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
 }
 
 const assistantTools = [
@@ -514,7 +518,16 @@ const assistantTools = [
   { name: "add_task", description: "Add a task to the mirror's task list.", input_schema: { type: "object", properties: { title: { type: "string" }, category: { type: "string", enum: ["Home", "Work", "Health", "Personal"] }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" } }, required: ["title"], additionalProperties: false } },
   { name: "complete_task", description: "Mark a task from the context as done.", input_schema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"], additionalProperties: false } },
   { name: "add_event", description: "Add an event to the mirror's on-device calendar.", input_schema: { type: "object", properties: { title: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM, 24-hour" }, location: { type: "string" } }, required: ["title", "date", "time"], additionalProperties: false } },
-  { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } }
+  { name: "update_task", description: "Change a task from the context: mark it done or not done, rename it, move it between Today and Upcoming, change priority, or delete it.", input_schema: { type: "object", properties: { task_id: { type: "string" }, done: { type: "boolean" }, title: { type: "string" }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" }, delete: { type: "boolean" } }, required: ["task_id"], additionalProperties: false } },
+  { name: "delete_event", description: "Delete an on-device calendar event from the context by its id. Google Calendar events cannot be deleted from the mirror.", input_schema: { type: "object", properties: { event_id: { type: "string" } }, required: ["event_id"], additionalProperties: false } },
+  { name: "set_timer", description: "Start a countdown timer. The mirror chimes and you announce it when it ends.", input_schema: { type: "object", properties: { minutes: { type: "number", minimum: 0 }, seconds: { type: "number", minimum: 0 }, label: { type: "string", description: "Short name, e.g. pasta" } }, additionalProperties: false } },
+  { name: "set_reminder", description: "Remind the person about something at a set time today or on a date. The mirror chimes and you say the reminder out loud at that time.", input_schema: { type: "object", properties: { text: { type: "string", description: "What to remind them about" }, time: { type: "string", description: "HH:MM, 24-hour" }, date: { type: "string", description: "YYYY-MM-DD; omit for the next time that clock time comes round" } }, required: ["text", "time"], additionalProperties: false } },
+  { name: "cancel_timer", description: "Cancel a running timer or reminder from the context by id, or all of them.", input_schema: { type: "object", properties: { id: { type: "string", description: "Timer or reminder id, or \"all\"" } }, required: ["id"], additionalProperties: false } },
+  { name: "set_weather_location", description: "Change the town or city the mirror shows weather for.", input_schema: { type: "object", properties: { place: { type: "string" } }, required: ["place"], additionalProperties: false } },
+  { name: "show_widget", description: "Show or hide a widget on the mirror's home screen.", input_schema: { type: "object", properties: { widget: { type: "string", enum: ["clock", "weather", "calendar", "tasks", "affirmations", "music", "smartHome", "photos"] }, visible: { type: "boolean" } }, required: ["widget", "visible"], additionalProperties: false } },
+  { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } },
+  // Runs on Anthropic's servers: news, sport, opening times, prices and anything else live.
+  { type: "web_search_20260209", name: "web_search", max_uses: 3 }
 ];
 
 function sameOriginRequest(req) {
@@ -602,7 +615,7 @@ async function assistantApi(req, res, url) {
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "assistant.css", "addons/catalog.json"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "assistant.css", "addons/catalog.json"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");
