@@ -485,7 +485,25 @@ async function api(req, res, url) {
       const response = await fetch("https://api.spotify.com/v1/me/player/devices", { headers: { Authorization: `Bearer ${token.access_token}` } });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) return json(res, response.status, { error: result.error?.message || "Spotify devices could not be loaded." });
-      return json(res, 200, { devices: (result.devices || []).filter((d) => d.id && !d.is_restricted).map((d) => ({ id: d.id, name: d.name, type: d.type, active: Boolean(d.is_active) })) });
+      return json(res, 200, { devices: (result.devices || []).filter((d) => d.id && !d.is_restricted).map((d) => ({ id: d.id, name: d.name, type: d.type, active: Boolean(d.is_active), volume: d.supports_volume === false ? null : d.volume_percent ?? null })) });
+    } catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  // Turns music down while Jarvis listens and talks, and back up afterwards.
+  if (url.pathname === "/api/spotify/player/volume" && req.method === "POST") {
+    try {
+      const token = await refreshProvider(session.account, "spotify");
+      writeState(session.state);
+      if (!token) return json(res, 409, { error: "Connect Spotify first." });
+      const input = await body(req);
+      const volume = Math.max(0, Math.min(100, Math.round(Number(input.volume))));
+      if (!Number.isFinite(volume)) return json(res, 400, { error: "Invalid volume." });
+      const spotifyUrl = new URL("https://api.spotify.com/v1/me/player/volume");
+      spotifyUrl.searchParams.set("volume_percent", String(volume));
+      if (input.deviceId) spotifyUrl.searchParams.set("device_id", String(input.deviceId));
+      const response = await fetch(spotifyUrl, { method: "PUT", headers: { Authorization: `Bearer ${token.access_token}` } });
+      if (response.ok) return json(res, 200, { ok: true });
+      const result = await response.json().catch(() => ({}));
+      return json(res, response.status, { error: result.error?.message || "Spotify could not change the volume." });
     } catch (error) { return json(res, 502, { error: error.message }); }
   }
   if (url.pathname === "/api/spotify/playlists" && req.method === "GET") {

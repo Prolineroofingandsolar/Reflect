@@ -10,7 +10,8 @@
     conversation: [], lastTurn: 0,
     recognition: null, srPaused: false, srUnavailable: false, srBlocked: false, awaitingCommand: false, commandTimer: null,
     audioCtx: null, micAnalyser: null, outAnalyser: null, micBuffer: null, outBuffer: null,
-    level: 0, speakPulse: 0, currentAudio: null, voice: null, closeTimer: null, recording: false
+    level: 0, speakPulse: 0, currentAudio: null, voice: null, closeTimer: null, recording: false,
+    turn: 0, queued: "", heardFinal: "", endTimer: null, ducked: null
   };
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -45,6 +46,7 @@
 
   function setState(state) {
     A.state = state;
+    if (state === "idle") unduckMusic(); else duckMusic();
     root.dataset.state = state;
     const label = stateText[state] ?? "";
     if (stateLabel.dataset.text !== label) { stateLabel.dataset.text = label; HUD.glitch(stateLabel, label, 320); }
@@ -351,6 +353,32 @@
     throw new Error(`Unknown tool ${tool}.`);
   }
 
+  // ---------- Music ducking ----------
+  // Like a smart speaker: music drops right down while Jarvis listens and talks, so there's no
+  // need to shout over it, then comes back to where it was.
+  function duckMusic() {
+    if (A.ducked || !connected("spotify") || !sampleData.track?.playing) return;
+    // Holds how to put the volume back, once the duck has gone through.
+    A.ducked = (async () => {
+      if (typeof spotifyPlayer !== "undefined" && spotifyPlayer && spotifyDeviceId && spotifyActiveDeviceId === spotifyDeviceId) {
+        const before = await spotifyPlayer.getVolume();
+        await spotifyPlayer.setVolume(Math.min(before, 0.12));
+        return () => spotifyPlayer.setVolume(before);
+      }
+      const { devices = [] } = await api("/api/spotify/devices");
+      const device = devices.find((d) => d.active);
+      if (!device || device.volume == null || device.volume <= 15) return null;
+      await api("/api/spotify/player/volume", { method: "POST", body: JSON.stringify({ volume: 15, deviceId: device.id }) });
+      return () => api("/api/spotify/player/volume", { method: "POST", body: JSON.stringify({ volume: device.volume, deviceId: device.id }) });
+    })().catch(() => null);
+  }
+  function unduckMusic() {
+    const ducked = A.ducked;
+    if (!ducked) return;
+    A.ducked = null;
+    ducked.then((restore) => restore?.()).catch(() => {});
+  }
+
   // ---------- Spotify ----------
   // Jarvis sends music to wherever Spotify is already playing; otherwise to this mirror's own player
   // if it's ready; otherwise to any device with Spotify open (the app on a Mac or phone, a speaker).
@@ -397,7 +425,11 @@
   // ---------- Conversation with Claude (via the local server) ----------
   async function ask(text) {
     text = String(text || "").trim();
-    if (!text || A.busy) return;
+    clearTimeout(A.endTimer); A.heardFinal = "";
+    if (!text) return;
+    // Asked something new while still working on the last one: that answer is dropped and this
+    // question goes next.
+    if (A.busy) { A.queued = text; interrupt(); showHeard(text); setState("thinking"); return; }
     clearTimeout(A.commandTimer);
     A.awaitingCommand = false;
     openStage();
@@ -410,9 +442,11 @@
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
     let reply = "", talk = null;
+    const turn = ++A.turn, live = () => A.turn === turn;
     // Jarvis starts speaking as soon as his first sentence has arrived, and keeps going sentence by
     // sentence while the rest of the reply is still being written.
     const feed = sentenceFeeder((sentence) => {
+      if (!live()) return;
       if (!talk) { talk = startTalking(); showReply(""); }
       showReplyPart(sentence);
       talk.say(sentence);
@@ -424,7 +458,7 @@
         const result = await chatStream(A.conversation, (delta) => feed.push(delta));
         feed.flush();
         const content = Array.isArray(result.content) ? result.content : [];
-        if (result.stop_reason === "refusal") { reply = "I'm afraid that's one I can't help with."; A.conversation = []; if (talk) { showReplyPart(reply); talk.say(reply); } break; }
+        if (result.stop_reason === "refusal") { reply = "I'm afraid that's one I can't help with."; A.conversation = []; if (talk && live()) { showReplyPart(reply); talk.say(reply); } break; }
         content.filter((b) => b.type === "server_tool_use" && b.name === "web_search").forEach((b) => logAction(`Searched the web: ${b.input?.query || ""}`));
         // A long web search can pause mid-turn. Sending the paused turn back resumes it, and the
         // continuation belongs to that same assistant turn.
@@ -449,10 +483,12 @@
     } catch (error) {
       A.conversation = [];
       reply = error.message;
-      if (talk) { showReplyPart(reply); talk.say(reply); }
+      if (talk && live()) { showReplyPart(reply); talk.say(reply); }
     } finally {
       A.busy = false;
     }
+    if (A.queued) { const next = A.queued; A.queued = ""; return ask(next); }
+    if (!live()) return;
     if (talk) return finishTalking(talk);
     await speak(reply || "Done.");
   }
@@ -645,7 +681,7 @@
           const url = await made.catch(() => null);
           if (A.speakRun !== run) { if (url) URL.revokeObjectURL(url); return; }
           if (url) await playSpeech(url).catch(() => {});
-          else await speakBrowser(chunk);
+          else { await voicesLoaded(); if (A.speakRun === run) await speakBrowser(chunk); }
         });
       },
       done: () => playing
@@ -684,6 +720,8 @@
     return URL.createObjectURL(blob);
   }
 
+  // Cuts Jarvis off mid-answer: anything still to come from that answer stays silent.
+  function interrupt() { A.turn++; stopSpeaking(); }
   function stopSpeaking() {
     A.speakRun = (A.speakRun || 0) + 1;
     if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -693,12 +731,13 @@
   function startTalking() {
     openStage();
     setState("speaking");
-    pauseRecognition();
+    // The microphone stays on while he talks, so saying his name cuts in (see handleTranscript).
+    A.srPaused = false;
+    startRecognition();
     return speechQueue();
   }
   async function finishTalking(talk) {
     try { await talk.done(); } catch {}
-    resumeRecognition();
     if (A.state !== "speaking") return; // interrupted by a tap or closed
     // Like a real conversation: stay listening briefly for a follow-up without the wake word.
     if (canListen()) listenForCommand(7000, false);
@@ -721,7 +760,7 @@
 
   function startRecognition() {
     if (!SR || A.srUnavailable || A.srBlocked || A.recognition || A.srPaused) return;
-    if (!A.status?.wakeWord && !A.awaitingCommand) return;
+    if (!A.status?.wakeWord && !A.awaitingCommand && A.state !== "speaking" && A.state !== "thinking") return;
     const r = new SR();
     r.lang = "en-GB"; r.continuous = true; r.interimResults = true;
     r.onresult = (event) => {
@@ -734,26 +773,42 @@
     r.onend = () => { if (A.recognition === r) A.recognition = null; setTimeout(startRecognition, 250); };
     try { r.start(); A.recognition = r; } catch { A.recognition = null; }
   }
-  function pauseRecognition() { A.srPaused = true; try { A.recognition?.abort(); } catch {} A.recognition = null; }
-  function resumeRecognition() { A.srPaused = false; startRecognition(); }
 
   function handleTranscript(transcript, isFinal) {
-    if (A.busy || A.state === "speaking") return;
-    if (A.awaitingCommand) {
-      const text = transcript.replace(wakePattern(), "").trim();
-      showHeard(text);
-      if (isFinal && text) ask(text);
-      return;
+    if (A.busy || A.state === "speaking") {
+      // While he's talking or thinking, only his name gets through: it cuts him off and he listens.
+      // Anything else is ignored, so he doesn't react to his own voice.
+      if (!wakePattern().test(transcript)) return;
+      interrupt();
+      A.awaitingCommand = false;
     }
+    if (A.awaitingCommand) return heard(transcript.replace(wakePattern(), "").trim(), isFinal);
     const match = transcript.match(wakePattern());
     if (!match) return;
     const after = transcript.slice(match.index + match[0].length).trim();
-    openStage();
-    setState("listening");
-    showHeard(after);
-    if (!isFinal) return;
-    if (after.split(/\s+/).filter(Boolean).length >= 2) ask(after);
-    else listenForCommand(8000, true);
+    listenForCommand(10000, !after);
+    heard(after, isFinal);
+  }
+  // Collects what's being said until there's a proper pause, so a sentence with a breath in the
+  // middle isn't cut off and sent half-finished. Speaking also keeps the listening window open.
+  function heard(text, isFinal) {
+    clearTimeout(A.endTimer);
+    if (text) keepListening();
+    if (isFinal && text) A.heardFinal = `${A.heardFinal} ${text}`.trim();
+    const sofar = isFinal ? A.heardFinal : `${A.heardFinal} ${text}`.trim();
+    if (sofar) showHeard(sofar);
+    if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 800 : 2200);
+  }
+  function keepListening() {
+    if (!A.awaitingCommand) return;
+    clearTimeout(A.commandTimer);
+    A.commandTimer = setTimeout(stopListening, 6000);
+  }
+  function stopListening() {
+    if (A.heardFinal) return; // about to send what was said
+    A.awaitingCommand = false;
+    if (!A.status?.wakeWord) { try { A.recognition?.abort(); } catch {} }
+    if (!A.busy) { setState("idle"); closeSoon(600); }
   }
 
   function listenForCommand(timeout = 8000, greet = true) {
@@ -766,11 +821,7 @@
       A.awaitingCommand = true;
       A.srPaused = false;
       startRecognition();
-      A.commandTimer = setTimeout(() => {
-        A.awaitingCommand = false;
-        if (!A.status?.wakeWord) { try { A.recognition?.abort(); } catch {} }
-        if (!A.busy) { setState("idle"); closeSoon(greet ? 2500 : 600); }
-      }, timeout);
+      A.commandTimer = setTimeout(stopListening, timeout);
       return;
     }
     if (A.status?.serverTranscription) return recordCommand(timeout);
@@ -858,8 +909,8 @@
   function activate() {
     audioContext();
     micAnalyser().catch(() => {});
-    if (A.busy) return openStage();
-    if (A.state === "speaking") stopSpeaking();
+    // A tap cuts him off, even mid-answer, and he listens.
+    if (A.busy || A.state === "speaking") interrupt();
     listenForCommand(8000, true);
   }
 
