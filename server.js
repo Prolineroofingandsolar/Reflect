@@ -475,6 +475,19 @@ async function api(req, res, url) {
       return json(res, response.status, { error: result.error?.message || "Spotify could not move playback to this mirror." });
     } catch (error) { return json(res, 502, { error: error.message }); }
   }
+  // Every place Spotify can play right now (the Spotify app on a computer or phone, a speaker, this
+  // mirror's own player), so Jarvis can send music somewhere that is actually switched on.
+  if (url.pathname === "/api/spotify/devices" && req.method === "GET") {
+    try {
+      const token = await refreshProvider(session.account, "spotify");
+      writeState(session.state);
+      if (!token) return json(res, 409, { error: "Connect Spotify first." });
+      const response = await fetch("https://api.spotify.com/v1/me/player/devices", { headers: { Authorization: `Bearer ${token.access_token}` } });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return json(res, response.status, { error: result.error?.message || "Spotify devices could not be loaded." });
+      return json(res, 200, { devices: (result.devices || []).filter((d) => d.id && !d.is_restricted).map((d) => ({ id: d.id, name: d.name, type: d.type, active: Boolean(d.is_active) })) });
+    } catch (error) { return json(res, 502, { error: error.message }); }
+  }
   if (url.pathname === "/api/spotify/playlists" && req.method === "GET") {
     try {
       const token = await refreshProvider(session.account, "spotify");

@@ -226,27 +226,10 @@
       return `${service} sent to ${entity.name}.`;
     }
     if (tool === "music") {
-      if (!connected("spotify")) throw new Error("Spotify is not connected.");
-      const playing = Boolean(sampleData.track?.playing);
-      if (input.action === "play_search") {
-        const query = String(input.query || "").trim();
-        if (!query) throw new Error("Nothing to search for.");
-        const { tracks = [] } = await api(`/api/spotify/search?q=${encodeURIComponent(query)}`);
-        if (!tracks.length) throw new Error(`Spotify found nothing for ${query}.`);
-        await playSpotifyTrack(tracks[0]);
-        setTimeout(loadSpotify, 1200);
-        return `Playing ${tracks[0].name} by ${tracks[0].artists}.`;
-      }
-      if (input.action === "play") {
-        if (playing) return "Music is already playing.";
-        await runSpotifyAction("play");
-      } else if (input.action === "pause" && !playing) {
-        return "Music is already paused.";
-      } else {
-        await api(`/api/spotify/player/${input.action}`, { method: "POST", body: "{}" });
-      }
-      setTimeout(loadSpotify, 800);
-      return `Music: ${input.action} done.`;
+      if (!connected("spotify")) throw new Error("Spotify is not connected. Connect it in Settings, Connections first.");
+      const done = await spotifyCommand(input);
+      setTimeout(loadSpotify, 900);
+      return done;
     }
     if (tool === "add_task") {
       const title = String(input.title || "").trim().slice(0, 80);
@@ -366,6 +349,49 @@
       return `Display brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}.`;
     }
     throw new Error(`Unknown tool ${tool}.`);
+  }
+
+  // ---------- Spotify ----------
+  // Jarvis sends music to wherever Spotify is already playing; otherwise to this mirror's own player
+  // if it's ready; otherwise to any device with Spotify open (the app on a Mac or phone, a speaker).
+  // Every failure is reported back, so he never claims to be playing something he isn't.
+  async function spotifyTarget() {
+    const { devices = [] } = await api("/api/spotify/devices");
+    const mirror = typeof spotifyDeviceId === "string" && spotifyDeviceId ? spotifyDeviceId : "";
+    const pick = devices.find((d) => d.active) || (mirror && devices.find((d) => d.id === mirror)) || devices.find((d) => d.type === "Computer") || devices[0];
+    if (pick) return pick;
+    if (mirror) return { id: mirror, name: "this mirror" };
+    throw new Error("Spotify isn't open anywhere. Open the Spotify app on your Mac or phone, then ask again.");
+  }
+  async function spotifySend(action, payload) {
+    try { return await api(`/api/spotify/player/${action}`, { method: "POST", body: JSON.stringify(payload) }); }
+    catch (error) {
+      if (/premium/i.test(error.message)) throw new Error("Spotify only lets me control music on a Premium account.");
+      if (/no active device|device not found/i.test(error.message)) throw new Error("Spotify isn't open anywhere. Open the Spotify app on your Mac or phone, then ask again.");
+      throw error;
+    }
+  }
+  async function spotifyCommand(input) {
+    const action = input.action;
+    if (action === "pause" && !sampleData.track?.playing) { try { await spotifySend("pause", {}); } catch {} return "Music paused."; }
+    const device = await spotifyTarget();
+    if (action === "play_search") {
+      const query = String(input.query || "").trim();
+      if (!query) throw new Error("Nothing to search for.");
+      const { tracks = [] } = await api(`/api/spotify/search?q=${encodeURIComponent(query)}`);
+      if (!tracks.length) throw new Error(`Spotify found nothing for ${query}.`);
+      await spotifySend("play", { uri: tracks[0].uri, deviceId: device.id });
+      sampleData.track = { ...sampleData.track, uri: tracks[0].uri, title: tracks[0].name, artist: tracks[0].artists, artwork: tracks[0].artwork, playing: true };
+      return `Playing ${tracks[0].name} by ${tracks[0].artists} on ${device.name}.`;
+    }
+    if (action === "play") {
+      // Nothing loaded yet: start the saved playlist rather than failing silently.
+      const context = !sampleData.track?.uri && typeof profile !== "undefined" ? profile.spotify?.playlistUri : "";
+      await spotifySend("play", { deviceId: device.id, ...(context ? { contextUri: context } : {}) });
+      return `Music playing on ${device.name}.`;
+    }
+    await spotifySend(action, { deviceId: device.id });
+    return action === "pause" ? "Music paused." : action === "next" ? "Skipped to the next track." : "Back to the previous track.";
   }
 
   // ---------- Conversation with Claude (via the local server) ----------
