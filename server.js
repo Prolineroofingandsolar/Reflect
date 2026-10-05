@@ -35,6 +35,8 @@ const secret = crypto.createHash("sha256").update(resolveSecret()).digest();
 const assistantConfig = {
   name: String(process.env.REFLECT_ASSISTANT_NAME || localConfig.assistantName || "Jarvis").trim() || "Jarvis",
   anthropicKey: process.env.ANTHROPIC_API_KEY || localConfig.anthropicApiKey || "",
+  // Only needed for an organisation-level key that is not scoped to a workspace.
+  anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
   model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-opus-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
@@ -551,7 +553,7 @@ async function assistantApi(req, res, url) {
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01" },
+        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
         body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", system: assistantSystemPrompt(), tools: assistantTools, messages })
       });
       const result = await response.json().catch(() => ({}));

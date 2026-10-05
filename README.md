@@ -103,6 +103,7 @@ Setup: add your Anthropic API key to `reflect-os.config.json` (copy `reflect-os.
 }
 ```
 
+- **Workspace keys:** if Claude replies that your key "is not scoped to a workspace", either create the key inside a workspace in the Claude Console, or add `"anthropicWorkspaceId": "wrkspc_..."` with the workspace's ID.
 - **Brain:** Claude (`claude-opus-5-5` by default; set `assistantModel` to change it), called from the local server so the key never reaches the browser.
 - **Hearing:** the browser's built-in speech recognition (works in Chrome on a Mac; Chrome sends the audio to Google for recognition). The wake word listens continuously while the mirror is open; set `"assistantWakeWord": false` to only listen after a tap or `J`.
 - **Voice:** the browser's built-in voice, preferring a British male voice such as "Daniel" on macOS.
