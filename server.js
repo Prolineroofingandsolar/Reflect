@@ -439,7 +439,7 @@ async function api(req, res, url) {
       writeState(session.state);
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const spotifyUrl = new URL("https://api.spotify.com/v1/search");
-      spotifyUrl.search = new URLSearchParams({ q: query, type: "track", limit: "12" }).toString();
+      spotifyUrl.search = new URLSearchParams({ q: query, type: "track", limit: "10" }).toString();
       const response = await fetch(spotifyUrl, { headers: { Authorization: `Bearer ${token.access_token}` } });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) return json(res, response.status, { error: result.error?.message || "Spotify search failed." });
