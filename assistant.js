@@ -27,12 +27,13 @@
       <div class="jv-state" aria-live="polite"></div>
       <p class="jv-heard"></p>
       <p class="jv-reply" aria-live="polite"></p>
+      <ol class="jv-log" aria-label="Actions taken"></ol>
       <form class="jv-type" autocomplete="off"><input type="text" maxlength="300" aria-label="Type a request"><button type="submit">Send</button></form>
     </div>`;
   document.body.appendChild(root);
   const el = (s) => root.querySelector(s);
   const mini = el(".jv-mini"), stage = el(".jv-stage"), canvas = el(".jv-orb"), stateLabel = el(".jv-state");
-  const heardEl = el(".jv-heard"), replyEl = el(".jv-reply"), typeForm = el(".jv-type"), typeInput = el(".jv-type input");
+  const heardEl = el(".jv-heard"), replyEl = el(".jv-reply"), logEl = el(".jv-log"), typeForm = el(".jv-type"), typeInput = el(".jv-type input");
   const ctx = canvas.getContext("2d");
 
   const name = () => A.status?.name || "Jarvis";
@@ -58,7 +59,8 @@
     A.open = false;
     root.classList.remove("is-open");
     heardEl.textContent = "";
-    replyEl.textContent = "";
+    showReply("");
+    clearLog();
     typeInput.blur();
     setState("idle");
   }
@@ -67,7 +69,36 @@
     A.closeTimer = setTimeout(() => { if (!A.busy && A.state !== "speaking" && A.state !== "listening") closeStage(); }, ms);
   }
   function showHeard(text) { heardEl.textContent = text ? `“${text}”` : ""; }
-  function showReply(text) { replyEl.textContent = text; }
+  // Replies type out on the glass like a HUD readout.
+  let typing = 0;
+  function showReply(text) {
+    const run = ++typing;
+    text = String(text || "");
+    if (!text || matchMedia("(prefers-reduced-motion: reduce)").matches) { replyEl.textContent = text; return; }
+    let i = 0;
+    const step = () => {
+      if (run !== typing) return;
+      i = Math.min(text.length, i + 2);
+      replyEl.textContent = text.slice(0, i);
+      if (i < text.length) setTimeout(step, 22);
+    };
+    step();
+  }
+  // A short log of what Jarvis just did ("Lights on", "Task added"), shown under the reply.
+  function logAction(text, failed = false) {
+    const item = document.createElement("li");
+    item.className = failed ? "is-error" : "";
+    item.textContent = text.replace(/\.$/, "");
+    logEl.append(item);
+    while (logEl.children.length > 4) logEl.firstElementChild.remove();
+  }
+  function clearLog() { logEl.replaceChildren(); }
+
+  // The first conversation of the day opens with a short briefing.
+  const briefKey = "reflect-os-assistant-briefed";
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function firstToday() { try { return localStorage.getItem(briefKey) !== today(); } catch { return false; } }
+  function markBriefed() { try { localStorage.setItem(briefKey, today()); } catch {} }
 
   // ---------- Mirror context ----------
   function activeScreen() {
@@ -91,6 +122,7 @@
       `Time: ${now.toLocaleString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
       `Person: ${profile.personName || "unknown"}`,
       `Screen showing: ${activeScreen()}`,
+      `First conversation today: ${firstToday() ? "yes" : "no"}`,
       ...weatherLines()
     ];
     const events = sortedEvents().filter((e) => {
@@ -198,6 +230,7 @@
     openStage();
     showHeard(text);
     showReply("");
+    clearLog();
     if (!A.status?.configured) return speak(`I'm not connected to my brain yet. Add an Anthropic API key to the Reflect config file and restart me.`);
     A.busy = true;
     setState("thinking");
@@ -216,14 +249,15 @@
         if (result.stop_reason !== "tool_use" || !uses.length) { reply = said; break; }
         if (said) showReply(said);
         const results = await Promise.all(uses.map(async (use) => {
-          try { return { type: "tool_result", tool_use_id: use.id, content: String(await runTool(use.name, use.input || {})) }; }
-          catch (error) { return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
+          try { const done = String(await runTool(use.name, use.input || {})); logAction(done); return { type: "tool_result", tool_use_id: use.id, content: done }; }
+          catch (error) { logAction(error.message, true); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
         }));
         A.conversation.push({ role: "user", content: results });
       }
       const last = A.conversation.at(-1);
       if (last && (last.role === "user" || last.content.some((b) => b.type === "tool_use"))) A.conversation = [];
       A.lastTurn = Date.now();
+      markBriefed();
     } catch (error) {
       A.conversation = [];
       reply = error.message;

@@ -37,6 +37,8 @@ const assistantConfig = {
   anthropicKey: process.env.ANTHROPIC_API_KEY || localConfig.anthropicApiKey || "",
   // Only needed for an organisation-level key that is not scoped to a workspace.
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
+  // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
+  address: String(localConfig.assistantAddress ?? "sir").trim(),
   model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-opus-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
@@ -500,9 +502,11 @@ Everything you write is spoken aloud by a text-to-speech voice and shown briefly
 - Answer in one to three short spoken sentences. Lead with the answer. No lists, no markdown, no emoji, no URLs.
 - Say numbers, times and temperatures the way a person would say them out loud.
 - A touch of dry humour is welcome; never let it get in the way of the answer.
-- Use the person's name now and then, not in every reply.
+- ${assistantConfig.address ? `Address the person as "${assistantConfig.address}" now and then, the way the butler addresses Tony Stark; use their name only occasionally.` : "Use the person's name now and then, not in every reply."}
 
 Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
+
+When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
 
 Use your tools to act on the mirror: change screens, control smart-home devices, control music, add or complete tasks, add calendar events, and adjust the display. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
 }
