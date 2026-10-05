@@ -22,18 +22,22 @@
     <button class="jv-mini" type="button" aria-label="Talk to the assistant"><span class="jv-mini-core"></span></button>
     <div class="jv-stage" role="dialog" aria-modal="true" aria-label="Assistant">
       <button class="jv-close" type="button" aria-label="Close">×</button>
+      <i class="jv-br tl"></i><i class="jv-br tr"></i><i class="jv-br bl"></i><i class="jv-br br"></i>
+      <div class="jv-tele jv-tele-l" aria-hidden="true"></div>
+      <div class="jv-tele jv-tele-r" aria-hidden="true"></div>
       <div class="jv-name"></div>
       <canvas class="jv-orb" width="560" height="560" aria-hidden="true"></canvas>
       <div class="jv-state" aria-live="polite"></div>
       <p class="jv-heard"></p>
-      <p class="jv-reply" aria-live="polite"></p>
+      <p class="jv-reply" aria-hidden="true"></p>
+      <p class="jv-sr" aria-live="polite"></p>
       <ol class="jv-log" aria-label="Actions taken"></ol>
       <form class="jv-type" autocomplete="off"><input type="text" maxlength="300" aria-label="Type a request"><button type="submit">Send</button></form>
     </div>`;
   document.body.appendChild(root);
   const el = (s) => root.querySelector(s);
   const mini = el(".jv-mini"), stage = el(".jv-stage"), canvas = el(".jv-orb"), stateLabel = el(".jv-state");
-  const heardEl = el(".jv-heard"), replyEl = el(".jv-reply"), logEl = el(".jv-log"), typeForm = el(".jv-type"), typeInput = el(".jv-type input");
+  const heardEl = el(".jv-heard"), replyEl = el(".jv-reply"), logEl = el(".jv-log"), srEl = el(".jv-sr"), teleL = el(".jv-tele-l"), teleR = el(".jv-tele-r"), typeForm = el(".jv-type"), typeInput = el(".jv-type input");
   const ctx = canvas.getContext("2d");
 
   const name = () => A.status?.name || "Jarvis";
@@ -42,13 +46,25 @@
   function setState(state) {
     A.state = state;
     root.dataset.state = state;
-    stateLabel.textContent = stateText[state] ?? "";
+    const label = stateText[state] ?? "";
+    if (stateLabel.dataset.text !== label) { stateLabel.dataset.text = label; HUD.glitch(stateLabel, label, 320); }
+    telemetry();
   }
   function openStage() {
     clearTimeout(A.closeTimer);
+    clearTimeout(A.closingTimer);
+    root.classList.remove("is-closing");
     if (A.open) return;
     A.open = true;
-    root.classList.add("is-open");
+    // Power-up: the stage projects open from a line of light while the orb assembles itself.
+    A.bootAt = performance.now();
+    root.classList.add("is-open", "is-booting");
+    clearTimeout(A.bootTimer);
+    A.bootTimer = setTimeout(() => root.classList.remove("is-booting"), 1400);
+    HUD.decode(el(".jv-name"), name().toUpperCase().split("").join(" "), { cps: 14, scramble: 200, caret: false, delay: 250 });
+    telemetry(true);
+    clearInterval(A.teleTimer);
+    A.teleTimer = setInterval(telemetry, 1000);
     requestAnimationFrame(draw);
   }
   function closeStage() {
@@ -57,7 +73,13 @@
     A.awaitingCommand = false;
     stopSpeaking();
     A.open = false;
-    root.classList.remove("is-open");
+    clearInterval(A.teleTimer);
+    // Power-down: the stage folds back into a line and fades.
+    if (root.classList.contains("is-open") && !HUD.reduced()) {
+      root.classList.add("is-closing");
+      clearTimeout(A.closingTimer);
+      A.closingTimer = setTimeout(() => root.classList.remove("is-open", "is-closing"), 380);
+    } else root.classList.remove("is-open");
     heardEl.textContent = "";
     showReply("");
     clearLog();
@@ -68,31 +90,53 @@
     clearTimeout(A.closeTimer);
     A.closeTimer = setTimeout(() => { if (!A.busy && A.state !== "speaking" && A.state !== "listening") closeStage(); }, ms);
   }
-  function showHeard(text) { heardEl.textContent = text ? `“${text}”` : ""; }
-  // Replies type out on the glass like a HUD readout.
-  let typing = 0;
+  function showHeard(text) { HUD.decode(heardEl, text ? `“${text}”` : "", { cps: 160, scramble: 60, caret: false }); }
+  // Replies decode onto the glass: each letter flickers through HUD glyphs, then locks in with a flash.
   function showReply(text) {
-    const run = ++typing;
     text = String(text || "");
-    if (!text || matchMedia("(prefers-reduced-motion: reduce)").matches) { replyEl.textContent = text; return; }
-    let i = 0;
-    const step = () => {
-      if (run !== typing) return;
-      i = Math.min(text.length, i + 2);
-      replyEl.textContent = text.slice(0, i);
-      if (i < text.length) setTimeout(step, 22);
-    };
-    step();
+    srEl.textContent = text;
+    HUD.decode(replyEl, text, { cps: Math.max(45, Math.min(90, text.length / 3)), scramble: 140 });
   }
   // A short log of what Jarvis just did ("Lights on", "Task added"), shown under the reply.
+  // Lines arrive one after another, each sliding in and decoding like a system readout.
+  let logSlot = 0;
   function logAction(text, failed = false) {
     const item = document.createElement("li");
     item.className = failed ? "is-error" : "";
-    item.textContent = text.replace(/\.$/, "");
+    const now = performance.now();
+    logSlot = Math.max(now, logSlot) + 160;
+    const delay = logSlot - now - 160;
+    item.style.animationDelay = `${delay}ms`;
     logEl.append(item);
+    HUD.decode(item, text.replace(/\.$/, ""), { cps: 120, scramble: 90, caret: false, delay });
     while (logEl.children.length > 5) logEl.firstElementChild.remove();
   }
-  function clearLog() { logEl.replaceChildren(); }
+  function clearLog() { logEl.replaceChildren(); logSlot = 0; }
+
+  // Side readouts on the stage: live time, link status and what Jarvis is doing.
+  function telemetry(fresh = false) {
+    if (!A.open && !fresh) return;
+    const now = new Date(), pad = (n) => String(n).padStart(2, "0");
+    const turns = A.conversation.filter((m) => m.role === "user" && m.content.some?.((b) => b.type === "text")).length;
+    const left = [
+      `T ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+      now.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" }).toUpperCase(),
+      `MIC · ${SR && !A.srUnavailable ? "ACTIVE" : A.status?.serverTranscription ? "RELAY" : "TYPE"}`,
+      `TIMERS · ${pad(loadTimers().length)}`
+    ];
+    const right = [
+      `CORE · ${A.status?.configured ? "ONLINE" : "OFFLINE"}`,
+      `MODE · ${(A.state === "speaking" ? "VOICE" : A.state).toUpperCase()}`,
+      `TURN · ${pad(turns)}`,
+      `LINK · ${navigator.onLine === false ? "LOST" : "SECURE"}`
+    ];
+    [[teleL, left], [teleR, right]].forEach(([box, lines]) => {
+      if (fresh || box.children.length !== lines.length) {
+        box.replaceChildren(...lines.map(() => document.createElement("div")));
+        lines.forEach((line, i) => HUD.decode(box.children[i], line, { cps: 50, scramble: 120, caret: false, delay: 500 + i * 120 }));
+      } else lines.forEach((line, i) => { const row = box.children[i]; if (!row.classList.contains("hud-writing") && row.textContent !== line) row.textContent = line; });
+    });
+  }
 
   // The first conversation of the day opens with a short briefing.
   const briefKey = "reflect-os-assistant-briefed";
@@ -594,6 +638,9 @@
     const lvl = A.level;
     const speed = A.state === "thinking" ? 2.6 : A.state === "listening" ? 0.9 : 0.35;
     const hue = A.state === "thinking" ? "120, 200, 255" : "86, 216, 255";
+    // Power-up progress: 0 when the stage opens, 1 once the orb has fully assembled.
+    const boot = HUD.reduced() ? 1 : Math.min(1, Math.max(0, (time - (A.bootAt || 0)) / 1300));
+    const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
 
     ctx.clearRect(0, 0, S, S);
     ctx.save();
@@ -603,8 +650,9 @@
     // Outer tick ring
     ctx.save();
     ctx.rotate(t * 0.08 * speed);
-    for (let i = 0; i < 72; i++) {
-      const a = (i / 72) * Math.PI * 2, long = i % 6 === 0;
+    const ticks = Math.round(72 * ease(boot * 1.6));
+    for (let i = 0; i < ticks; i++) {
+      const a = (i / 72) * Math.PI * 2 - Math.PI / 2, long = i % 6 === 0;
       ctx.strokeStyle = `rgba(${hue}, ${long ? 0.55 : 0.22})`;
       ctx.lineWidth = long ? 2.4 : 1.4;
       ctx.beginPath();
@@ -616,23 +664,81 @@
 
     // Rotating arc segments
     const arcs = [[0.40, 3, 0.5, 6, 0.7], [0.355, 5, -0.8, 3, 0.45], [0.31, 2, 1.4, 9, 0.35]];
-    arcs.forEach(([r, count, dir, width, alpha]) => {
+    arcs.forEach(([r, count, dir, width, alpha], n) => {
+      const grow = ease((boot - 0.15 - n * 0.12) * 2.2);
+      if (grow <= 0) return;
       ctx.save();
-      ctx.rotate(t * dir * speed);
+      ctx.rotate(t * dir * speed + (1 - grow) * dir * 4);
       ctx.strokeStyle = `rgba(${hue}, ${alpha})`;
       ctx.lineWidth = width;
       for (let i = 0; i < count; i++) {
         const start = (i / count) * Math.PI * 2;
         ctx.beginPath();
-        ctx.arc(0, 0, S * r, start, start + (Math.PI * 2 / count) * 0.62);
+        ctx.arc(0, 0, S * r, start, start + (Math.PI * 2 / count) * 0.62 * grow);
         ctx.stroke();
       }
       ctx.restore();
     });
 
+    // Targeting reticle: a thin ring with four notches, turning against the arcs.
+    const ret = ease((boot - 0.35) * 2);
+    if (ret > 0) {
+      ctx.save();
+      ctx.rotate(-t * 0.25 * speed - (1 - ret) * 2);
+      ctx.strokeStyle = `rgba(${hue}, ${0.22 * ret})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, S * 0.27 * (0.7 + 0.3 * ret), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${hue}, ${0.7 * ret})`;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2, r1 = S * 0.255, r2 = S * 0.285;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Thinking: a radar sweep circling inside the rings.
+    if (A.state === "thinking") {
+      ctx.save();
+      ctx.rotate(t * 3.2);
+      const sweep = ctx.createLinearGradient(0, 0, S * 0.38, 0);
+      sweep.addColorStop(0, `rgba(${hue}, 0)`);
+      sweep.addColorStop(1, `rgba(${hue}, 0.55)`);
+      ctx.strokeStyle = sweep;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(S * 0.16, 0);
+      ctx.lineTo(S * 0.38, 0);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(${hue}, 0.07)`;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, S * 0.38, -0.6, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Ignition shockwave as the core lights.
+    if (boot > 0.45 && boot < 1) {
+      const w = (boot - 0.45) / 0.55;
+      ctx.strokeStyle = `rgba(${hue}, ${0.8 * (1 - w)})`;
+      ctx.lineWidth = 3 * (1 - w) + 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, S * (0.12 + w * 0.38), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // Audio-reactive waveform ring
+    const wave = ease((boot - 0.3) * 2.2);
+    ctx.globalAlpha = wave;
     ctx.beginPath();
-    const base = S * (0.22 + lvl * 0.05);
+    const base = S * (0.22 + lvl * 0.05) * (0.6 + 0.4 * wave);
     for (let i = 0; i <= 96; i++) {
       const a = (i / 96) * Math.PI * 2;
       const wobble = Math.sin(a * 6 + t * 4) * Math.sin(a * 3 - t * 2.3) * S * 0.035 * (0.15 + lvl);
@@ -645,8 +751,12 @@
     ctx.shadowBlur = 18 + lvl * 30;
     ctx.stroke();
 
-    // Core
-    const coreR = S * (0.12 + lvl * 0.06);
+    ctx.globalAlpha = 1;
+
+    // Core: ignites with a bright overshoot during power-up.
+    const ignite = Math.min(1, Math.max(0, (boot - 0.4) * 2.5));
+    const flare = ignite > 0 && boot < 1 ? Math.sin(ignite * Math.PI) * 0.6 : 0;
+    const coreR = S * (0.12 + lvl * 0.06) * (ease(ignite) + flare);
     const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR * 2.2);
     glow.addColorStop(0, "rgba(255, 255, 255, 0.95)");
     glow.addColorStop(0.25, `rgba(${hue}, 0.85)`);
@@ -655,8 +765,7 @@
     ctx.shadowBlur = 0;
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(0, 0, coreR * 2.2, 0, Math.PI * 2);
-    ctx.fill();
+    if (coreR > 0) { ctx.arc(0, 0, coreR * 2.2, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
     requestAnimationFrame(draw);
   }
@@ -670,7 +779,7 @@
   document.body.appendChild(timerChip);
   function loadTimers() { try { const list = JSON.parse(localStorage.getItem(timersKey) || "[]"); return Array.isArray(list) ? list : []; } catch { return []; } }
   function saveTimers(list) { try { localStorage.setItem(timersKey, JSON.stringify(list)); } catch {} renderTimers(); }
-  function addTimer(timer) { const list = loadTimers(); list.push({ id: `t${Date.now().toString(36)}`, ...timer }); list.sort((a, b) => a.at - b.at); saveTimers(list.slice(-12)); }
+  function addTimer(timer) { const list = loadTimers(); list.push({ id: `t${Date.now().toString(36)}`, set: Date.now(), ...timer }); list.sort((a, b) => a.at - b.at); saveTimers(list.slice(-12)); }
   function durationText(ms) {
     const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
     return [h && `${h} hour${h === 1 ? "" : "s"}`, m && `${m} minute${m === 1 ? "" : "s"}`, sec && `${sec} second${sec === 1 ? "" : "s"}`].filter(Boolean).join(" ") || "0 seconds";
@@ -679,17 +788,26 @@
     const total = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
     return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   }
+  let shownTimers = new Set(loadTimers().map((t) => t.id));
   function renderTimers() {
     const now = Date.now();
     const list = loadTimers().filter((t) => t.kind === "timer" || t.at - now < 3600000);
     timerChip.hidden = !list.length;
-    timerChip.innerHTML = list.slice(0, 3).map((t) => `<span class="jv-timer"><b>${t.kind === "timer" ? clockText(t.at - now) : new Date(t.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</b>${esc(t.label)}</span>`).join("");
+    // New items lock on with a bracket flash, a bar drains as a timer runs, and the last ten seconds pulse.
+    timerChip.innerHTML = list.slice(0, 3).map((t) => {
+      const left = t.at - now, fresh = !shownTimers.has(t.id);
+      const spent = t.kind === "timer" && t.set ? Math.min(1, Math.max(0, (now - t.set) / (t.at - t.set))) : 0;
+      const cls = ["jv-timer", fresh && "is-new", t.kind === "timer" && left <= 10000 && "is-urgent"].filter(Boolean).join(" ");
+      return `<span class="${cls}"><b>${t.kind === "timer" ? clockText(left) : new Date(t.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</b>${esc(t.label)}${t.kind === "timer" ? `<i style="transform:scaleX(${(1 - spent).toFixed(3)})"></i>` : ""}</span>`;
+    }).join("");
+    shownTimers = new Set(list.map((t) => t.id));
   }
   function announce(text) {
     if (A.busy || A.state === "speaking") return setTimeout(() => announce(text), 1500);
     openStage();
     showHeard("");
     clearLog();
+    HUD.alert();
     chime(); setTimeout(chime, 450);
     setTimeout(() => speak(text), 700);
   }
