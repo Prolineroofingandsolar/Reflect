@@ -7,5 +7,9 @@
   "anthropicWorkspaceId": "",
   "assistantName": "Jarvis",
   "assistantWakeWord": true,
-  "openaiApiKey": ""
+  "openaiApiKey": "",
+  "voiceStudioUrl": "",
+  "voiceStudioVoice": "",
+  "elevenLabsApiKey": "",
+  "elevenLabsVoiceId": ""
 }

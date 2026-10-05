@@ -39,11 +39,22 @@ const assistantConfig = {
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
   // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
   address: String(localConfig.assistantAddress ?? "sir").trim(),
-  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-opus-5-5",
+  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-sonnet-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
   openaiKey: process.env.OPENAI_API_KEY || localConfig.openaiApiKey || "",
+  // Optional: VoiceStudio (github.com/debpalash/VoiceStudio) runs a natural voice free on this computer.
+  // Set voiceStudioUrl (its app serves http://127.0.0.1:3900) and voiceStudioVoice to a saved voice profile.
+  // It takes priority over ElevenLabs and OpenAI.
+  voiceStudioUrl: String(localConfig.voiceStudioUrl || "").trim().replace(/\/+$/, ""),
+  voiceStudioVoice: String(localConfig.voiceStudioVoice || "").trim(),
+  voiceStudioModel: String(localConfig.voiceStudioModel || "").trim(),
+  voiceStudioKey: String(localConfig.voiceStudioApiKey || "").trim(),
+  // Optional: an ElevenLabs key gives the most natural, film-like voice. It takes priority over OpenAI's voice.
+  elevenLabsKey: process.env.ELEVENLABS_API_KEY || localConfig.elevenLabsApiKey || "",
+  elevenLabsVoice: String(localConfig.elevenLabsVoiceId || "").trim() || "JBFqnCBsd6RMkjVDRZzb",
+  elevenLabsModel: localConfig.elevenLabsModel || "eleven_flash_v2_5",
   voice: localConfig.assistantVoice || "fable",
   ttsModel: localConfig.assistantTtsModel || "gpt-4o-mini-tts",
   sttModel: localConfig.assistantSttModel || "whisper-1"
@@ -494,6 +505,10 @@ async function api(req, res, url) {
   return json(res, 404, { error: "Not found" });
 }
 
+function voiceProvider() {
+  return assistantConfig.voiceStudioUrl ? "VoiceStudio" : assistantConfig.elevenLabsKey ? "ElevenLabs" : assistantConfig.openaiKey ? "OpenAI" : "";
+}
+
 function assistantSystemPrompt() {
   const name = assistantConfig.name;
   return `You are ${name}, the AI that lives in a smart mirror called Reflect. Think of the AI butler from the Iron Man films: calm, quick, quietly witty and unfailingly competent, with a dry British manner.
@@ -525,6 +540,7 @@ const assistantTools = [
   { name: "cancel_timer", description: "Cancel a running timer or reminder from the context by id, or all of them.", input_schema: { type: "object", properties: { id: { type: "string", description: "Timer or reminder id, or \"all\"" } }, required: ["id"], additionalProperties: false } },
   { name: "set_weather_location", description: "Change the town or city the mirror shows weather for.", input_schema: { type: "object", properties: { place: { type: "string" } }, required: ["place"], additionalProperties: false } },
   { name: "show_widget", description: "Show or hide a widget on the mirror's home screen.", input_schema: { type: "object", properties: { widget: { type: "string", enum: ["clock", "weather", "calendar", "tasks", "affirmations", "music", "smartHome", "photos"] }, visible: { type: "boolean" } }, required: ["widget", "visible"], additionalProperties: false } },
+  { name: "change_voice", description: "Change the voice you speak with, when asked. Without a name, moves to the next available voice; with a name, picks the voice whose name contains it. Tell the person the new voice's name in a few words.", input_schema: { type: "object", properties: { name: { type: "string", description: "Part of a voice name, such as Daniel or Jamie. Leave out to try the next voice." } }, additionalProperties: false } },
   { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } },
   // Runs on Anthropic's servers: news, sport, opening times, prices and anything else live.
   { type: "web_search_20260209", name: "web_search", max_uses: 3 }
@@ -551,7 +567,7 @@ async function rawBody(req, limit) {
 
 async function assistantApi(req, res, url) {
   if (url.pathname === "/api/assistant/status" && req.method === "GET") {
-    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(assistantConfig.openaiKey), serverTranscription: Boolean(assistantConfig.openaiKey) });
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: voiceProvider(), serverTranscription: Boolean(assistantConfig.openaiKey) });
   }
   if (req.method !== "POST") return json(res, 404, { error: "Not found" });
   if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
@@ -564,12 +580,17 @@ async function assistantApi(req, res, url) {
     const messages = Array.isArray(input.messages) ? input.messages : [];
     if (!messages.length || messages.length > 60 || messages.some((m) => !m || !["user", "assistant"].includes(m.role) || !Array.isArray(m.content))) return json(res, 400, { error: "Invalid conversation." });
     try {
+      const started = Date.now();
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
-        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", system: assistantSystemPrompt(), tools: assistantTools, messages })
+        // The system prompt and tools are the same on every request, so they're cached (the explicit
+        // marker), and the growing conversation is cached too (the top-level field). Both make replies quicker.
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages })
       });
       const result = await response.json().catch(() => ({}));
+      const usage = result.usage || {};
+      console.log(`${assistantConfig.name}: ${((Date.now() - started) / 1000).toFixed(1)}s, ${result.model || assistantConfig.model}, ${usage.cache_read_input_tokens || 0} cached / ${usage.input_tokens || 0} new input tokens, ${usage.output_tokens || 0} output tokens${result.stop_reason ? `, ${result.stop_reason}` : ""}`);
       if (!response.ok) return json(res, response.status === 401 ? 503 : 502, { error: response.status === 401 ? "The Anthropic API key in reflect-os.config.json was rejected." : result.error?.message || "The assistant is unavailable right now." });
       return json(res, 200, { content: result.content || [], stop_reason: result.stop_reason });
     } catch { return json(res, 502, { error: "The assistant could not reach Claude. Check the internet connection." }); }
@@ -577,20 +598,34 @@ async function assistantApi(req, res, url) {
 
   if (url.pathname === "/api/assistant/speak") {
     if (!type.startsWith("application/json")) return json(res, 415, { error: "Send JSON." });
-    if (!assistantConfig.openaiKey) return json(res, 409, { error: "Server voice is not configured." });
+    const provider = voiceProvider();
+    if (!provider) return json(res, 409, { error: "Server voice is not configured." });
     const text = String((await body(req)).text || "").trim().slice(0, 1500);
     if (!text) return json(res, 400, { error: "Nothing to say." });
     try {
-      const response = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${assistantConfig.openaiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: assistantConfig.ttsModel, voice: assistantConfig.voice, input: text, response_format: "mp3", instructions: "Calm, warm and precise, with a refined British accent and a hint of dry wit, like a capable AI butler." })
-      });
-      if (!response.ok) return json(res, 502, { error: "The server voice is unavailable." });
+      const response = provider === "VoiceStudio"
+        // VoiceStudio speaks the OpenAI speech API on this computer: a saved profile as `voice`, an engine as `model`.
+        ? await fetch(`${assistantConfig.voiceStudioUrl}/v1/audio/speech`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(assistantConfig.voiceStudioKey ? { Authorization: `Bearer ${assistantConfig.voiceStudioKey}` } : {}) },
+          body: JSON.stringify({ input: text, response_format: "mp3", ...(assistantConfig.voiceStudioVoice ? { voice: assistantConfig.voiceStudioVoice } : {}), ...(assistantConfig.voiceStudioModel ? { model: assistantConfig.voiceStudioModel } : {}) })
+        })
+        : provider === "ElevenLabs"
+        ? await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(assistantConfig.elevenLabsVoice)}?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "xi-api-key": assistantConfig.elevenLabsKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+          body: JSON.stringify({ text, model_id: assistantConfig.elevenLabsModel, voice_settings: { stability: 0.55, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true } })
+        })
+        : await fetch("https://api.openai.com/v1/audio/speech", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${assistantConfig.openaiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: assistantConfig.ttsModel, voice: assistantConfig.voice, input: text, response_format: "mp3", instructions: "Calm, warm and precise, with a refined British accent and a hint of dry wit, like a capable AI butler." })
+        });
+      if (!response.ok) { console.log(`Voice: ${provider} returned ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`); return json(res, 502, { error: "The server voice is unavailable." }); }
       const audio = Buffer.from(await response.arrayBuffer());
       res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.length });
       return res.end(audio);
-    } catch { return json(res, 502, { error: "The server voice is unavailable." }); }
+    } catch { if (provider === "VoiceStudio") console.log(`Voice: couldn't reach VoiceStudio at ${assistantConfig.voiceStudioUrl}. Is the app open?`); return json(res, 502, { error: "The server voice is unavailable." }); }
   }
 
   if (url.pathname === "/api/assistant/transcribe") {
