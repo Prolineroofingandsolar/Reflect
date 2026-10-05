@@ -30,7 +30,7 @@ const defaultAddOnState = {
   photos:{installed:true,enabled:true,connectionStatus:"connected",lastSync:"Stored on this mirror",error:""}
 };
 const defaultProfile = {
-  version:5, personName:"Will", greetingPrefix:"Good", accentColor:"#56d8ff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"dark", brightness:80, warmth:0, nightMode:false,
+  version:6, personName:"Will", greetingPrefix:"Good", accentColor:"#56d8ff", clockFormat:"24", defaultView:"home", navTimeout:3600, theme:"dark", brightness:80, warmth:0, nightMode:false,
   weather:{place:"London",latitude:51.5072,longitude:-0.1276},
   account:{signedIn:false,name:"Will",email:"will@example.com",id:""},
   addOns:defaultAddOnState,
@@ -96,7 +96,7 @@ function loadProfile(){
 function mergeProfile(saved={}){
   if(!saved || typeof saved!=="object") return clone(defaultProfile);
   const next=clone(defaultProfile);
-  Object.assign(next,saved,{version:5});
+  Object.assign(next,saved,{version:6});
   next.account={...defaultProfile.account,...(saved.account||{})};
   next.spotify={...defaultProfile.spotify,...(saved.spotify||{})};
   next.weather={...defaultProfile.weather,...(saved.weather||{})};
@@ -120,6 +120,8 @@ function mergeProfile(saved={}){
     if(String(saved.accentColor||"").toLowerCase()==="#a98bff") next.accentColor=defaultProfile.accentColor;
     if(next.widgets.photos) next.widgets.photos.visible=false;
   }
+  // Light was the old default and washes out behind mirror glass; move saved profiles to Dark once.
+  if(Number(saved.version||0)<6 && next.theme==="light") next.theme="dark";
   if(!document.querySelector(`[data-view="${CSS.escape(next.defaultView)}"]`)) next.defaultView="home";
   return next;
 }
