@@ -443,7 +443,17 @@
   }
   if ("speechSynthesis" in window) speechSynthesis.addEventListener?.("voiceschanged", () => { A.voice = pickVoice(); });
 
-  function speakBrowser(text) {
+  // Chrome fills in its voice list a moment after the page loads. Speaking before then uses the
+  // system default voice, so a reply right after start-up would sound different from the rest.
+  function voicesLoaded() {
+    if (!("speechSynthesis" in window) || speechSynthesis.getVoices().length) return Promise.resolve();
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, 2000);
+      speechSynthesis.addEventListener?.("voiceschanged", () => { clearTimeout(t); resolve(); }, { once: true });
+    });
+  }
+  async function speakBrowser(text) {
+    await voicesLoaded();
     return new Promise((resolve) => {
       if (!("speechSynthesis" in window)) return resolve();
       speechSynthesis.cancel();
@@ -501,7 +511,13 @@
     const chunks = speechChunks(text);
     // Each request starts as soon as the previous one has finished generating, not playing.
     let chain = Promise.resolve();
-    const pending = chunks.map((chunk) => (chain = chain.then(() => make(chunk))));
+    // A sentence that fails to generate gets one more try, so the voice doesn't switch mid-reply.
+    const pending = chunks.map((chunk) => {
+      const attempt = chain.then(() => make(chunk));
+      const result = attempt.catch(() => make(chunk));
+      chain = result.catch(() => {});
+      return result;
+    });
     pending.forEach((p) => p.catch(() => {}));
     for (let i = 0; i < chunks.length; i++) {
       let url;
@@ -519,7 +535,7 @@
   // Set "builtInVoice" in reflect-os.config.json (for example "bm_george") to use it.
   const kokoroVoices = ["bm_george", "bm_fable", "bm_lewis", "bm_daniel", "bf_emma", "bf_isabella", "bf_alice", "bf_lily"];
   const kokoroKey = "reflect-os-assistant-kokoro-voice";
-  const K = { worker: null, ready: false, failed: false, nextId: 0, waiting: new Map() };
+  const K = { worker: null, ready: false, failed: false, loading: null, nextId: 0, waiting: new Map() };
   function kokoroVoice() {
     let saved = "";
     try { saved = localStorage.getItem(kokoroKey) || ""; } catch {}
@@ -536,9 +552,10 @@
   }
   // Loads the model as soon as the mirror starts, so the first reply doesn't wait for it.
   function warmKokoro() {
-    if (!A.status?.builtInVoice || K.ready || K.failed) return;
+    if (!A.status?.builtInVoice || K.ready || K.failed) return K.loading;
+    if (K.loading) return K.loading;
     const started = performance.now();
-    kokoroCall({ type: "load" })
+    return (K.loading = kokoroCall({ type: "load" }))
       .then(() => { K.ready = true; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); })
       .catch((error) => { K.failed = true; console.warn("Built-in voice unavailable:", error.message); });
   }
@@ -558,7 +575,10 @@
     setState("speaking");
     pauseRecognition();
     try {
-      // Until the built-in voice has finished downloading, the browser voice fills in.
+      // With the built-in voice set, Jarvis waits for it to finish loading rather than filling in
+      // with a different voice, so he always sounds the same. Only if it can't load at all (or is
+      // still downloading after a minute) does the browser voice speak instead.
+      if (A.status?.builtInVoice && !K.ready && !K.failed) await Promise.race([warmKokoro(), new Promise((r) => setTimeout(r, 60000))]).catch(() => {});
       if (A.status?.builtInVoice && K.ready) await speakServer(text, makeKokoro).catch(() => speakBrowser(text));
       else if (A.status?.serverVoice && !A.status?.builtInVoice) await speakServer(text).catch(() => speakBrowser(text));
       else await speakBrowser(text);
