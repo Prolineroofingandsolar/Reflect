@@ -331,6 +331,18 @@
       saveProfile(); renderHome(); renderWidgetSettings();
       return `${input.widget} widget ${widget.visible ? "shown" : "hidden"}.`;
     }
+    if (tool === "change_voice") {
+      if (A.status?.serverVoice) throw new Error(`I'm using the ${A.status.voiceProvider || "server"} voice, which is set in reflect-os.config.json.`);
+      const voices = britishVoices();
+      if (!voices.length) throw new Error("This browser has no British voices to choose from.");
+      const current = voices.findIndex((v) => v.name === (A.voice || pickVoice())?.name);
+      const wanted = String(input.name || "").toLowerCase();
+      const next = wanted ? voices.find((v) => v.name.toLowerCase().includes(wanted)) : voices[(current + 1) % voices.length];
+      if (!next) throw new Error(`There's no voice called ${input.name}. I have ${voices.map((v) => v.name).join(", ")}.`);
+      A.voice = next;
+      try { localStorage.setItem(voiceKey, next.name); } catch {}
+      return `Voice changed to ${next.name}, ${voices.indexOf(next) + 1} of ${voices.length}: ${voices.map((v) => v.name).join(", ")}.`;
+    }
     if (tool === "set_display") {
       if (Number.isFinite(input.brightness)) profile.brightness = Math.max(30, Math.min(100, Math.round(input.brightness)));
       if (typeof input.night_mode === "boolean") profile.nightMode = input.night_mode;
@@ -400,12 +412,26 @@
     if (A.audioCtx.state === "suspended") A.audioCtx.resume().catch(() => {});
     return A.audioCtx;
   }
+  // The browser's own voices. Downloaded Premium and Enhanced voices sound far more natural than
+  // the built-in compact ones, so they win; then British male voices; then any British voice.
+  // A voice chosen by saying "change your voice" is remembered.
+  const voiceKey = "reflect-os-assistant-voice";
+  const maleVoices = ["Jamie", "Oliver", "Daniel", "Arthur", "Google UK English Male", "Malcolm", "George", "Ryan", "Thomas"];
+  function voiceScore(v) {
+    if (!/^en[-_]GB/i.test(v.lang)) return /^en/i.test(v.lang) ? 1 : 0;
+    const male = maleVoices.findIndex((n) => v.name.includes(n));
+    return 10 + (/premium/i.test(v.name) ? 40 : /enhanced|neural|natural/i.test(v.name) ? 25 : 0) + (male >= 0 ? 20 - male : 0);
+  }
+  function britishVoices() {
+    if (!("speechSynthesis" in window)) return [];
+    return speechSynthesis.getVoices().filter((v) => voiceScore(v) >= 10).sort((a, b) => voiceScore(b) - voiceScore(a));
+  }
   function pickVoice() {
     if (!("speechSynthesis" in window)) return null;
     const voices = speechSynthesis.getVoices();
-    const preferred = ["Daniel", "Google UK English Male", "Arthur", "Oliver", "Malcolm", "George"];
-    for (const wanted of preferred) { const v = voices.find((x) => x.name.includes(wanted) && /^en[-_]GB/i.test(x.lang)); if (v) return v; }
-    return voices.find((v) => /^en[-_]GB/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang)) || null;
+    let saved = "";
+    try { saved = localStorage.getItem(voiceKey) || ""; } catch {}
+    return voices.find((v) => v.name === saved) || [...voices].sort((a, b) => voiceScore(b) - voiceScore(a)).find((v) => voiceScore(v) > 0) || null;
   }
   if ("speechSynthesis" in window) speechSynthesis.addEventListener?.("voiceschanged", () => { A.voice = pickVoice(); });
 
