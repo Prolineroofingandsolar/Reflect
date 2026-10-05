@@ -97,6 +97,14 @@
     srEl.textContent = text;
     HUD.decode(replyEl, text, { cps: Math.max(70, Math.min(140, text.length / 2)), scramble: 120 });
   }
+  // Adds a sentence to the reply as it arrives; each one decodes onto the glass on its own.
+  function showReplyPart(text) {
+    const part = document.createElement("span");
+    if (replyEl.childNodes.length) replyEl.append(" ");
+    replyEl.append(part);
+    srEl.textContent = `${srEl.textContent} ${text}`.trim();
+    HUD.decode(part, text, { cps: Math.max(70, Math.min(140, text.length / 2)), scramble: 120 });
+  }
   // A short log of what Jarvis just did ("Lights on", "Task added"), shown under the reply.
   // Lines arrive one after another, each sliding in and decoding like a system readout.
   let logSlot = 0;
@@ -375,14 +383,22 @@
     setState("thinking");
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
-    let reply = "";
+    let reply = "", talk = null;
+    // Jarvis starts speaking as soon as his first sentence has arrived, and keeps going sentence by
+    // sentence while the rest of the reply is still being written.
+    const feed = sentenceFeeder((sentence) => {
+      if (!talk) { talk = startTalking(); showReply(""); }
+      showReplyPart(sentence);
+      talk.say(sentence);
+    });
     try {
       A.conversation.push({ role: "user", content: [{ type: "text", text: `[Mirror context]\n${await mirrorContext()}\n\nThey said: ${text}` }] });
       let paused = false;
       for (let step = 0; step < 8; step++) {
-        const result = await api("/api/assistant/chat", { method: "POST", body: JSON.stringify({ messages: A.conversation }) });
+        const result = await chatStream(A.conversation, (delta) => feed.push(delta));
+        feed.flush();
         const content = Array.isArray(result.content) ? result.content : [];
-        if (result.stop_reason === "refusal") { reply = "I'm afraid that's one I can't help with."; A.conversation = []; break; }
+        if (result.stop_reason === "refusal") { reply = "I'm afraid that's one I can't help with."; A.conversation = []; if (talk) { showReplyPart(reply); talk.say(reply); } break; }
         content.filter((b) => b.type === "server_tool_use" && b.name === "web_search").forEach((b) => logAction(`Searched the web: ${b.input?.query || ""}`));
         // A long web search can pause mid-turn. Sending the paused turn back resumes it, and the
         // continuation belongs to that same assistant turn.
@@ -394,7 +410,6 @@
         const said = turn.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
         const uses = turn.filter((b) => b.type === "tool_use");
         if (result.stop_reason !== "tool_use" || !uses.length) { reply = said; break; }
-        if (said) showReply(said);
         const results = await Promise.all(uses.map(async (use) => {
           try { const done = String(await runTool(use.name, use.input || {})); logAction(done); return { type: "tool_result", tool_use_id: use.id, content: done }; }
           catch (error) { logAction(error.message, true); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
@@ -408,10 +423,79 @@
     } catch (error) {
       A.conversation = [];
       reply = error.message;
+      if (talk) { showReplyPart(reply); talk.say(reply); }
     } finally {
       A.busy = false;
     }
+    if (talk) return finishTalking(talk);
     await speak(reply || "Done.");
+  }
+
+  // Reads Claude's reply as it streams in, rebuilding the same content blocks a normal reply has
+  // (so the conversation history is unchanged) and handing each new piece of text to onText.
+  async function chatStream(messages, onText) {
+    const response = await fetch("/api/assistant/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages, stream: true }) });
+    if (!response.ok || !response.body || !String(response.headers.get("content-type")).includes("event-stream")) {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "The assistant is unavailable right now.");
+      return data;
+    }
+    const blocks = [], json = [];
+    let stop_reason = null, buffer = "";
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    const handle = (event) => {
+      if (event.type === "content_block_start") {
+        const block = { ...event.content_block };
+        if (block.type === "text") { block.text = ""; if (!block.citations) delete block.citations; }
+        if (block.type === "tool_use" || block.type === "server_tool_use") json[event.index] = "";
+        blocks[event.index] = block;
+      } else if (event.type === "content_block_delta") {
+        const block = blocks[event.index], d = event.delta;
+        if (!block) return;
+        if (d.type === "text_delta") { block.text += d.text; onText(d.text); }
+        else if (d.type === "input_json_delta") json[event.index] += d.partial_json;
+        else if (d.type === "citations_delta") (block.citations ||= []).push(d.citation);
+        else if (d.type === "thinking_delta") block.thinking = (block.thinking || "") + d.thinking;
+        else if (d.type === "signature_delta") block.signature = d.signature;
+      } else if (event.type === "content_block_stop") {
+        const block = blocks[event.index];
+        if (block && json[event.index] !== undefined) { try { block.input = json[event.index] ? JSON.parse(json[event.index]) : {}; } catch { block.input = {}; } }
+      } else if (event.type === "message_delta") stop_reason = event.delta?.stop_reason || stop_reason;
+      else if (event.type === "error") throw new Error(event.error?.message || "The assistant is unavailable right now.");
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) if (line.startsWith("data:")) { let event; try { event = JSON.parse(line.slice(5)); } catch { continue; } handle(event); }
+    }
+    if (!stop_reason) throw new Error("The assistant could not reach Claude. Check the internet connection.");
+    // If Claude handed over to a fallback model part-way, only the text from before the hand-over
+    // belongs in the history; the marker itself is dropped.
+    const list = blocks.filter(Boolean), cut = list.map((b) => b.type).lastIndexOf("fallback");
+    const content = list.filter((b, i) => b.type !== "fallback" && (i > cut || b.type === "text"));
+    return { content, stop_reason };
+  }
+  // Splits streaming text into speakable pieces: whole sentences, with very short ones joined to the
+  // next so the voice doesn't sound clipped. The first piece is allowed to be short so it starts fast.
+  function sentenceFeeder(say) {
+    let buffer = "", first = true;
+    const end = /[.!?]+["')\]]*\s+/g;
+    return {
+      push(text) {
+        buffer += text;
+        let cut = 0, m;
+        end.lastIndex = 0;
+        while ((m = end.exec(buffer))) {
+          const stop = m.index + m[0].length;
+          if (stop - cut >= (first ? 12 : 25)) { const piece = buffer.slice(cut, stop).trim(); if (piece) { say(piece); first = false; } cut = stop; }
+        }
+        buffer = buffer.slice(cut);
+      },
+      flush() { const piece = buffer.trim(); buffer = ""; if (piece) { say(piece); first = false; } }
+    };
   }
 
   // ---------- Speaking ----------
@@ -506,30 +590,40 @@
       audio.play().catch(reject);
     }).finally(() => { URL.revokeObjectURL(url); A.currentAudio = null; A.outAnalyser = null; });
   }
-  async function speakServer(text, make = fetchSpeech) {
-    const run = (A.speakRun = (A.speakRun || 0) + 1);
-    const chunks = speechChunks(text);
-    // Each request starts as soon as the previous one has finished generating, not playing.
-    let chain = Promise.resolve();
-    // A sentence that fails to generate gets one more try, so the voice doesn't switch mid-reply.
-    const pending = chunks.map((chunk) => {
-      const attempt = chain.then(() => make(chunk));
-      const result = attempt.catch(() => make(chunk));
-      chain = result.catch(() => {});
-      return result;
-    });
-    pending.forEach((p) => p.catch(() => {}));
-    for (let i = 0; i < chunks.length; i++) {
-      let url;
-      try { url = await pending[i]; }
-      catch (error) {
-        if (i === 0) throw error;
-        if (A.speakRun === run) await speakBrowser(chunks.slice(i).join(" "));
-        return;
-      }
-      if (A.speakRun !== run) { URL.revokeObjectURL(url); continue; }
-      await playSpeech(url);
+  // Which voice to use for this reply. With the built-in voice set, Jarvis waits for it to finish
+  // loading rather than filling in with a different voice, so he always sounds the same. Only if it
+  // can't load at all (or is still downloading after a minute) does the browser voice speak instead.
+  async function voiceMaker() {
+    if (A.status?.builtInVoice) {
+      if (!K.ready && !K.failed) await Promise.race([warmKokoro(), new Promise((r) => setTimeout(r, 60000))]).catch(() => {});
+      return K.ready ? makeKokoro : null;
     }
+    return A.status?.serverVoice ? fetchSpeech : null;
+  }
+  // A queue of sentences to say. Each sentence is generated while the one before it plays. A sentence
+  // that fails gets one more try; if the voice keeps failing, the browser voice says the rest.
+  function speechQueue() {
+    const run = (A.speakRun = (A.speakRun || 0) + 1);
+    const maker = voiceMaker();
+    let generating = Promise.resolve(), playing = Promise.resolve(), broken = false;
+    return {
+      say(chunk) {
+        const made = generating.then(async () => {
+          const make = await maker;
+          if (!make || broken || A.speakRun !== run) return null;
+          try { return await make(chunk); } catch {}
+          try { return await make(chunk); } catch { broken = true; return null; }
+        });
+        generating = made.catch(() => {});
+        playing = playing.then(async () => {
+          const url = await made.catch(() => null);
+          if (A.speakRun !== run) { if (url) URL.revokeObjectURL(url); return; }
+          if (url) await playSpeech(url).catch(() => {});
+          else await speakBrowser(chunk);
+        });
+      },
+      done: () => playing
+    };
   }
   // ---------- Built-in voice (Kokoro, in a worker) ----------
   // Set "builtInVoice" in reflect-os.config.json (for example "bm_george") to use it.
@@ -569,25 +663,26 @@
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (A.currentAudio) { A.currentAudio.pause(); A.currentAudio = null; }
   }
-  async function speak(text) {
+  // Speaking happens in three steps so a streamed reply can start talking before it has finished.
+  function startTalking() {
     openStage();
-    showReply(text);
     setState("speaking");
     pauseRecognition();
-    try {
-      // With the built-in voice set, Jarvis waits for it to finish loading rather than filling in
-      // with a different voice, so he always sounds the same. Only if it can't load at all (or is
-      // still downloading after a minute) does the browser voice speak instead.
-      if (A.status?.builtInVoice && !K.ready && !K.failed) await Promise.race([warmKokoro(), new Promise((r) => setTimeout(r, 60000))]).catch(() => {});
-      if (A.status?.builtInVoice && K.ready) await speakServer(text, makeKokoro).catch(() => speakBrowser(text));
-      else if (A.status?.serverVoice && !A.status?.builtInVoice) await speakServer(text).catch(() => speakBrowser(text));
-      else await speakBrowser(text);
-    } catch {}
+    return speechQueue();
+  }
+  async function finishTalking(talk) {
+    try { await talk.done(); } catch {}
     resumeRecognition();
     if (A.state !== "speaking") return; // interrupted by a tap or closed
     // Like a real conversation: stay listening briefly for a follow-up without the wake word.
     if (canListen()) listenForCommand(7000, false);
     else { setState("idle"); closeSoon(); }
+  }
+  async function speak(text) {
+    showReply(text);
+    const talk = startTalking();
+    speechChunks(text).forEach((chunk) => talk.say(chunk));
+    return finishTalking(talk);
   }
 
   // ---------- Listening ----------
