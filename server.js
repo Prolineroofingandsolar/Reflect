@@ -690,6 +690,14 @@ async function assistantApi(req, res, url) {
     } catch { if (provider === "VoiceStudio") console.log(`Voice: couldn't reach VoiceStudio at ${assistantConfig.voiceStudioUrl}. Is the app open?`); return json(res, 502, { error: "The server voice is unavailable." }); }
   }
 
+  // The mirror reports how long each reply took to start talking, so the delay can be read here.
+  if (url.pathname === "/api/assistant/timing") {
+    const t = await body(req).catch(() => ({}));
+    const secs = (ms) => (Number.isFinite(Number(ms)) && Number(ms) >= 0 ? `${(Number(ms) / 1000).toFixed(1)}s` : "-");
+    console.log(`${assistantConfig.name}: started speaking ${secs(t.firstSound)} after you stopped talking (first words from Claude ${secs(t.firstText)}, voice took ${secs(t.voice)} for the first ${Number(t.chars) || 0} characters, ${String(t.engine || "unknown voice").slice(0, 60)})`);
+    return json(res, 200, { ok: true });
+  }
+
   if (url.pathname === "/api/assistant/transcribe") {
     if (!type.startsWith("audio/")) return json(res, 415, { error: "Send audio." });
     if (!assistantConfig.openaiKey) return json(res, 409, { error: "Server speech recognition is not configured." });
