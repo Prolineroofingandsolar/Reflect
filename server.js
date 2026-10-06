@@ -39,7 +39,7 @@ const assistantConfig = {
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
   // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
   address: String(localConfig.assistantAddress ?? "sir").trim(),
-  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-sonnet-5-5",
+  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-haiku-4-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
@@ -543,13 +543,11 @@ function voiceProvider() {
   return assistantConfig.voiceStudioUrl ? "VoiceStudio" : assistantConfig.elevenLabsKey ? "ElevenLabs" : assistantConfig.openaiKey ? "OpenAI" : "";
 }
 
-// Jarvis answers in a sentence or two, so Claude thinking it over first only adds a wait before he
-// speaks. Sonnet 5.5 turns that off with "between_tools"; other models keep their usual setting.
-// Set "assistantThinking": true in reflect-os.config.json to let him think first.
-function assistantThinking() {
-  if (localConfig.assistantThinking === true) return {};
-  return /^claude-sonnet-5-5/.test(assistantConfig.model) ? { thinking: { type: "between_tools" } } : {};
-}
+// Jarvis runs on Claude Haiku 4.5 by default: it starts answering about twice as fast as Sonnet,
+// which matters more than depth for one-to-three-sentence spoken replies. Set "assistantModel" to
+// "claude-sonnet-5-5" in reflect-os.config.json for a smarter but slower Jarvis. Haiku doesn't take
+// the effort setting, the server-side fallback or the newest web search, so those are newer-model only.
+const isHaiku = () => /^claude-haiku/.test(assistantConfig.model);
 
 function assistantSystemPrompt() {
   const name = assistantConfig.name;
@@ -627,10 +625,10 @@ async function assistantApi(req, res, url) {
       const started = Date.now();
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
+        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", ...(isHaiku() ? {} : { "anthropic-beta": "server-side-fallback-2026-07-01" }), ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
         // The system prompt and tools are the same on every request, so they're cached (the explicit
         // marker), and the growing conversation is cached too (the top-level field). Both make replies quicker.
-        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, ...assistantThinking(), fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, ...(isHaiku() ? {} : { output_config: { effort: "low" }, fallbacks: "default" }), cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: isHaiku() ? assistantTools.map((t) => (t.type === "web_search_20260209" ? { ...t, type: "web_search_20250305" } : t)) : assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
       });
       // Streaming: the reply is passed straight through to the mirror as it's written, so Jarvis
       // can start speaking his first sentence while the rest is still on its way.
