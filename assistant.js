@@ -857,7 +857,7 @@
     if (isFinal && text) A.heardFinal = `${A.heardFinal} ${text}`.trim();
     const sofar = isFinal ? A.heardFinal : `${A.heardFinal} ${text}`.trim();
     if (sofar) showHeard(sofar);
-    if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 800 : 2200);
+    if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 550 : 2200);
   }
   function keepListening() {
     if (!A.awaitingCommand) return;
@@ -877,6 +877,7 @@
     clearTimeout(A.commandTimer);
     setState("listening");
     if (greet) { showHeard(""); showReply(""); chime(); }
+    fetch("/api/assistant/warm", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
     if (SR && !A.srUnavailable && !A.srBlocked) {
       A.awaitingCommand = true;
       A.srPaused = false;
