@@ -543,6 +543,14 @@ function voiceProvider() {
   return assistantConfig.voiceStudioUrl ? "VoiceStudio" : assistantConfig.elevenLabsKey ? "ElevenLabs" : assistantConfig.openaiKey ? "OpenAI" : "";
 }
 
+// Jarvis answers in a sentence or two, so Claude thinking it over first only adds a wait before he
+// speaks. Sonnet 5.5 turns that off with "between_tools"; other models keep their usual setting.
+// Set "assistantThinking": true in reflect-os.config.json to let him think first.
+function assistantThinking() {
+  if (localConfig.assistantThinking === true) return {};
+  return /^claude-sonnet-5-5/.test(assistantConfig.model) ? { thinking: { type: "between_tools" } } : {};
+}
+
 function assistantSystemPrompt() {
   const name = assistantConfig.name;
   return `You are ${name}, the AI that lives in a smart mirror called Reflect. Think of the AI butler from the Iron Man films: calm, quick, quietly witty and unfailingly competent, with a dry British manner.
@@ -556,6 +564,8 @@ Everything you write is spoken aloud by a text-to-speech voice and shown briefly
 Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
 
 When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
+
+When you use a tool, say a brief sentence first (such as "Right away, sir."), so the person hears you straight away while it runs; afterwards add only what they need to know. Do not include internal or system XML tags in what you say.
 
 Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
 }
@@ -620,7 +630,7 @@ async function assistantApi(req, res, url) {
         headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
         // The system prompt and tools are the same on every request, so they're cached (the explicit
         // marker), and the growing conversation is cached too (the top-level field). Both make replies quicker.
-        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, ...assistantThinking(), fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
       });
       // Streaming: the reply is passed straight through to the mirror as it's written, so Jarvis
       // can start speaking his first sentence while the rest is still on its way.
@@ -688,6 +698,13 @@ async function assistantApi(req, res, url) {
       res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.length });
       return res.end(audio);
     } catch { if (provider === "VoiceStudio") console.log(`Voice: couldn't reach VoiceStudio at ${assistantConfig.voiceStudioUrl}. Is the app open?`); return json(res, 502, { error: "The server voice is unavailable." }); }
+  }
+
+  // Called the moment he hears his name: opens the connection to Claude while the person is still
+  // speaking, so the real request doesn't spend time setting one up.
+  if (url.pathname === "/api/assistant/warm") {
+    if (assistantConfig.anthropicKey) fetch("https://api.anthropic.com/v1/models?limit=1", { headers: { "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01" } }).then((r) => r.arrayBuffer()).catch(() => {});
+    return json(res, 200, { ok: true });
   }
 
   // The mirror reports how long each reply took to start talking, so the delay can be read here.
