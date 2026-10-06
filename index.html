@@ -9,8 +9,8 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%2356d8ff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.21">
-  <link rel="stylesheet" href="assistant.css?v=0.9.21">
+  <link rel="stylesheet" href="styles.css?v=0.9.22">
+  <link rel="stylesheet" href="assistant.css?v=0.9.22">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -342,6 +342,15 @@
         </div>
       </section>
 
+      <section class="settings-page" data-page="people" hidden>
+        <p class="settings-help">Jarvis can tell who is talking by their voice. When he recognises someone, the mirror greets them and shows their own tasks and calendar, as well as everything shared. The easiest way to add someone is to say “Jarvis, learn my voice”. Voices are kept on this mirror only.</p>
+        <div class="settings-group" id="peopleList"></div>
+        <form class="settings-group" id="learnVoiceForm" autocomplete="off">
+          <label class="settings-field"><span>Add a person</span><input id="learnVoiceName" maxlength="40" placeholder="Their name"></label>
+          <div class="settings-field"><span>Jarvis shows four short sentences to read out loud</span><button class="ghost-button" type="submit">Learn voice</button></div>
+        </form>
+      </section>
+
       <section class="settings-page" data-page="home" hidden>
         <p class="settings-help">Show, hide and place each widget. Or press E on the mirror to arrange them on screen.</p>
         <div class="widget-settings" id="widgetSettings" aria-label="Widget settings"></div>
@@ -454,8 +463,9 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.21"></script>
-<script src="hud-motion.js?v=0.9.21"></script>
-<script src="assistant.js?v=0.9.21"></script>
+<script src="app.js?v=0.9.22"></script>
+<script src="hud-motion.js?v=0.9.22"></script>
+<script src="people.js?v=0.9.22"></script>
+<script src="assistant.js?v=0.9.22"></script>
 </body>
 </html>

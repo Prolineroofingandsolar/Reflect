@@ -164,13 +164,17 @@ function weatherLabel(code){if(code===0)return"Clear";if(code<=3)return"Partly c
 function weatherIcon(code,isDay=1){if(code===0)return isDay?"☀":"☾";if(code<=3)return"☁";if(code<=48)return"≋";if(code<=67)return"☂";if(code<=77)return"✦";if(code<=82)return"☂";return"ϟ";}
 function windDirection(degrees){return["N","NE","E","SE","S","SW","W","NW"][Math.round((Number(degrees)||0)/45)%8];}
 function eventDisplay(event){const raw=event.start||[event.date,event.time].filter(Boolean).join("T");const date=raw?new Date(raw):null;const valid=date&&!Number.isNaN(date.valueOf());return{...event,time:event.allDay?"All day":valid?date.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):event.time||"",day:valid?date.toLocaleDateString([], {weekday:"short",day:"numeric"}):"Upcoming"};}
-function sortedEvents(){return [...sampleData.events].sort((a,b)=>String(a.start||`${a.date||"9999"}T${a.time||"23:59"}`).localeCompare(String(b.start||`${b.date||"9999"}T${b.time||"23:59"}`)));}
+// Shared items plus the ones belonging to whoever is at the mirror (see people.js).
+function canSee(item){return typeof People==="undefined"||People.canSee(item);}
+function newOwner(){const owner=typeof People==="undefined"?"":People.ownerForNew();return owner?{owner}:{};}
+function myTasks(){return sampleData.tasks.filter(canSee);}
+function sortedEvents(){return sampleData.events.filter(canSee).sort((a,b)=>String(a.start||`${a.date||"9999"}T${a.time||"23:59"}`).localeCompare(String(b.start||`${b.date||"9999"}T${b.time||"23:59"}`)));}
 
 function renderWidget(id){
   if(id==="clock") return `<p class="time"><span id="timeNow">08:42</span><span class="time-sec" id="timeSec"></span></p><div class="hud-sec" aria-hidden="true"><i id="secBar"></i></div><p class="date" id="dateNow"></p><p class="greeting" id="greeting"></p>`;
   if(id==="weather"){const current=weatherData?.current,daily=weatherData?.daily;return `<h2>${esc(profile.weather.place||"Weather")}</h2><div class="weather-line"><span class="weather-icon">${weatherIcon(current?.weather_code??2,current?.is_day)}</span><span class="weather-temp">${current?Math.round(current.temperature_2m):"--"}°</span></div><p class="weather-summary">${esc(current?weatherLabel(current.weather_code):"Updating weather")}</p><p class="muted">${daily?`High ${Math.round(daily.temperature_2m_max[0])}° · Low ${Math.round(daily.temperature_2m_min[0])}°`:esc(profile.weather.place)}</p>`;}
   if(id==="calendar"){const events=sortedEvents().slice(0,3).map(eventDisplay);return `<h2>Upcoming</h2><ol class="event-list compact-list">${events.length?events.map(e=>`<li><time>${esc(e.time)}</time><span>${esc(e.title)}</span>${e.location?`<small>${esc(e.location)}</small>`:""}</li>`).join(""):`<li class="quiet-empty">No upcoming events</li>`}</ol>`;}
-  if(id==="tasks") return `<h2>Today</h2><ul class="task-list compact-list">${sampleData.tasks.filter(task=>task.when==="Today").slice(0,4).map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-home-task-index="${index}" aria-label="Mark ${esc(task.title)} complete"></button><span>${esc(task.title)}</span><small>${esc(task.category)}</small></li>`;}).join("")||`<li class="quiet-empty">Nothing due today</li>`}</ul>`;
+  if(id==="tasks") return `<h2>Today</h2><ul class="task-list compact-list">${myTasks().filter(task=>task.when==="Today").slice(0,4).map(task=>{const index=sampleData.tasks.indexOf(task);return `<li><button class="check ${task.done?"is-done":""}" data-home-task-index="${index}" aria-label="Mark ${esc(task.title)} complete"></button><span>${esc(task.title)}</span><small>${esc(task.category)}</small></li>`;}).join("")||`<li class="quiet-empty">Nothing due today</li>`}</ul>`;
   if(id==="music") return `<h2>Now playing</h2><div class="now-playing spotify-widget"><div><p class="song">${esc(sampleData.track.title)}</p><p class="artist">${esc(sampleData.track.artist)}</p></div><div class="mini-controls"><button data-spotify-action="previous" aria-label="Previous track">‹</button><button class="play" data-spotify-action="play" aria-label="Play or pause">${sampleData.track.playing?"Ⅱ":"▶"}</button><button data-spotify-action="next" aria-label="Next track">›</button></div><div class="progress"><span style="width:${sampleData.track.progress}%"></span></div></div>`;
   if(id==="affirmations"){const pool=affirmationPool();if(!pool.length)return `<p class="affirmation-empty">Add your own affirmations in Settings.</p>`;const item=pool[affirmationIndex%pool.length];return typeof item==="string"?`<p class="affirmation-text">${esc(item)}</p>`:`<blockquote class="affirmation-quote"><p>${esc(item.t)}</p><cite>${esc(item.a)}</cite></blockquote>`;}
   if(id==="smartHome"){const items=connected("smartHome")&&homeAssistantEntities.length?homeAssistantEntities.filter(e=>["light","switch","climate","lock"].includes(e.domain)).slice(0,4).map(e=>`${e.name} · ${haValue(e)}`):sampleData.smartHome;return `<h2>Smart Home</h2><div class="smart-summary">${items.map(item=>`<p>${esc(item)}</p>`).join("")}</div>`;}
@@ -245,7 +249,7 @@ function affirmationPool(){
 }
 function restartAffirmations(){clearInterval(affirmationTimer);const pool=affirmationPool();if(profile.widgets.affirmations?.visible&&pool.length>1)affirmationTimer=setInterval(()=>{affirmationIndex=(affirmationIndex+1)%pool.length;const el=document.querySelector('[data-widget="affirmations"] .widget-body');if(el)el.innerHTML=renderWidget("affirmations");},Math.max(8,Number(profile.affirmations.interval)||30)*1000);}
 function restartSlideshow(){clearInterval(slideshowTimer);if(profile.widgets.photos.visible&&photoRecords.length>1)slideshowTimer=setInterval(()=>{currentPhoto=profile.photos.order==="shuffle"?Math.floor(Math.random()*photoRecords.length):(currentPhoto+1)%photoRecords.length;renderHome();},profile.photos.interval*1000);}
-function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);const sec=now.getSeconds();if($("timeSec"))$("timeSec").textContent=String(sec).padStart(2,"0");const bar=$("secBar");if(bar){bar.style.transition=sec===0?"none":"";bar.style.width=`${(sec+1)/60*100}%`;}$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
+function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);const sec=now.getSeconds();if($("timeSec"))$("timeSec").textContent=String(sec).padStart(2,"0");const bar=$("secBar");if(bar){bar.style.transition=sec===0?"none":"";bar.style.width=`${(sec+1)/60*100}%`;}$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();const who=typeof People==="undefined"?profile.personName:People.greetingName();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}${who?`, ${who}`:""}`;}
 
 function statusFor(id){const state=profile.addOns[id];if(state.error)return "Needs attention";if(!state.installed)return "Available";if(addOnRegistry[id].requiresConnection&&!connected(id))return "Connection required";return connected(id)?"Connected":"Installed";}
 function greetingWord(){const h=new Date().getHours();return h<12?"morning":h<18?"afternoon":"evening";}
@@ -271,6 +275,7 @@ const settingsCategories=[
   {page:"general",label:"General",icon:"⚙",group:0},
   {page:"home",label:"Home Layout",icon:"▦",group:0},
   {page:"affirmations",label:"Affirmations",icon:"✦",group:0},
+  {page:"people",label:"People & voices",icon:"☺",group:0},
   {page:"photos",label:"Photos",icon:"⬜",group:1},
   {page:"weather",label:"Weather",icon:"°",group:1},
   {page:"music",label:"Music",icon:"♪",group:1},
@@ -278,10 +283,11 @@ const settingsCategories=[
   {page:"phone",label:"Phone control",icon:"▢",group:2},
   {page:"about",label:"About",icon:"ⓘ",group:2}
 ];
-const settingsTitles={profile:"Account",general:"General",home:"Home Layout",photos:"Photos",affirmations:"Affirmations",weather:"Weather",music:"Music",connections:"Connections",phone:"Phone control",about:"About",privacy:"Privacy & security"};
+const settingsTitles={profile:"Account",general:"General",people:"People & voices",home:"Home Layout",photos:"Photos",affirmations:"Affirmations",weather:"Weather",music:"Music",connections:"Connections",phone:"Phone control",about:"About",privacy:"Privacy & security"};
 let settingsPage=null;
 function settingsRowValue(page){
   if(page==="general")return esc(profile.personName);
+  if(page==="people"&&typeof People!=="undefined"){const n=People.list().length;return n?`${n} ${n===1?"person":"people"}`:"";}
   if(page==="weather")return esc(profile.weather.place);
   if(page==="affirmations")return {affirmations:"Affirmations",quotes:"Quotes",both:"Both",custom:"My own"}[profile.affirmations.mode]||"";
   if(page==="connections"){const n=["spotify","googleCalendar","smartHome"].filter(id=>connected(id)).length;return n?`${n} connected`:"";}
@@ -326,6 +332,7 @@ function openSettingsPage(page){
   if(page==="photos")renderPhotosPage();
   if(page==="connections")renderConnections();
   if(page==="home")renderWidgetSettings();
+  if(page==="people"&&typeof People!=="undefined")People.renderSettings();
   if(page==="about"){const v=$("aboutVersion");if(v&&appVersionText)v.textContent="v"+appVersionText;}
   detail.classList.remove("slide-in");void detail.offsetWidth;detail.classList.add("slide-in");
 }
@@ -479,14 +486,14 @@ function renderTaskPage(){
   const heading=$("taskHeading");
   const labels={today:"Today",upcoming:"Upcoming",completed:"Completed",work:"Work",home:"Home"};
   if(heading)heading.textContent=labels[taskFilter]||"Tasks";
-  const filtered=sampleData.tasks.filter(task=>taskFilter==="today"?task.when==="Today":taskFilter==="upcoming"?task.when==="Upcoming"&&!task.done:taskFilter==="completed"?task.done:taskCatClass(task.category)===taskFilter);
+  const filtered=myTasks().filter(task=>taskFilter==="today"?task.when==="Today":taskFilter==="upcoming"?task.when==="Upcoming"&&!task.done:taskFilter==="completed"?task.done:taskCatClass(task.category)===taskFilter);
   list.innerHTML=filtered.map(task=>{
     const index=sampleData.tasks.indexOf(task);const cat=taskCatClass(task.category);
     return `<li class="task-row ${task.done?"is-done":""}"><span class="tr-grip" aria-hidden="true">⠿</span><button class="tr-check ${task.done?"is-done":""}" data-task-index="${index}" aria-label="Toggle ${esc(task.title)}"></button><div class="tr-meta"><span class="tr-title">${esc(task.title)}</span><small>${esc(task.category)}${task.when?` · ${esc(task.when)}`:""}</small></div>${task.priority?'<span class="tr-prio">☆ High priority</span>':""}<span class="tr-chip" style="--cat:${taskCatColour[cat]||"#8f7bff"}">${esc(task.category)}</span></li>`;
   }).join("")||'<li class="cal-empty">Nothing here — this view is clear.</li>';
   list.querySelectorAll("[data-task-index]").forEach(button=>button.addEventListener("click",()=>{const i=Number(button.dataset.taskIndex);sampleData.tasks[i].done=!sampleData.tasks[i].done;saveDeviceData();renderTaskPage();renderHome();}));
 
-  const todays=sampleData.tasks.filter(t=>t.when==="Today");
+  const todays=myTasks().filter(t=>t.when==="Today");
   const doneCount=todays.filter(t=>t.done).length;
   const pct=todays.length?Math.round(doneCount/todays.length*100):0;
   const pt=$("taskProgressText");if(pt)pt.textContent=`${doneCount} of ${todays.length} complete`;
@@ -497,12 +504,12 @@ function renderTaskPage(){
     focus.innerHTML=`<p class="cal-card-eyebrow">Focus</p><div class="focus-row"><div class="focus-ring" style="--pct:${pct}"><span>${pct}<i>%</i></span></div><p class="focus-left">${left} task${left===1?"":"s"} left today</p></div>`;}
 
   const next=$("taskNext");
-  if(next){const up=todays.find(t=>!t.done)||sampleData.tasks.find(t=>!t.done);
+  if(next){const up=todays.find(t=>!t.done)||myTasks().find(t=>!t.done);
     next.innerHTML=up?`<p class="cal-card-eyebrow">Next task</p><strong class="tn-title">${esc(up.title)}</strong><small class="tn-sub">${esc(up.category)}${up.when?` · ${esc(up.when)}`:""}</small><button class="pill-primary tn-btn" type="button" id="taskFocusStart">Start focus</button>`:'<p class="cal-card-eyebrow">Next task</p><p class="muted">All clear. Nothing left today.</p>';
     $("taskFocusStart")?.addEventListener("click",()=>{const btn=$("taskFocusStart");btn.textContent="Focusing…";setTimeout(()=>{btn.textContent="Start focus";},1600);});}
 
   const lists=$("taskLists");
-  if(lists){const cats={};sampleData.tasks.filter(t=>!t.done).forEach(t=>{const c=t.category||"Other";cats[c]=(cats[c]||0)+1;});
+  if(lists){const cats={};myTasks().filter(t=>!t.done).forEach(t=>{const c=t.category||"Other";cats[c]=(cats[c]||0)+1;});
     const rows=Object.entries(cats).map(([c,n])=>`<button class="tl-row" type="button" data-task-filter-jump="${esc(taskCatClass(c))}"><span class="ev-dot" style="--ev:${taskCatColour[taskCatClass(c)]||"#8f7bff"}"></span><span class="tl-name">${esc(c)}</span><span class="tl-count">${n}</span><span class="chev">›</span></button>`).join("");
     lists.innerHTML=`<p class="cal-card-eyebrow">Lists</p>${rows||'<p class="muted">No open tasks.</p>'}`;
     lists.querySelectorAll("[data-task-filter-jump]").forEach(b=>b.addEventListener("click",()=>{const f=b.dataset.taskFilterJump;if(!labels[f])return;taskFilter=f;document.querySelectorAll("[data-task-filter]").forEach(i=>i.classList.toggle("is-selected",i.dataset.taskFilter===f));renderTaskPage();}));}
@@ -622,7 +629,7 @@ function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideT
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
 function openItemDialog(kind){const dialog=$("itemDialog"),fields=$("itemFields"),today=new Date().toISOString().slice(0,10);dialog.dataset.kind=kind;$("itemDialogEyebrow").textContent=kind==="task"?"Focus list":"Device calendar";$("itemDialogTitle").textContent=kind==="task"?"Add task":"Add event";fields.innerHTML=kind==="task"?`<label><span>Task</span><input name="title" required maxlength="80" autofocus></label><label><span>Category</span><select name="category"><option>Home</option><option>Work</option><option>Health</option><option>Personal</option></select></label><label><span>When</span><select name="when"><option>Today</option><option>Upcoming</option></select></label><label><span>Priority</span><select name="priority"><option value="">Normal</option><option value="high">High</option></select></label>`:`<label><span>Event</span><input name="title" required maxlength="80" autofocus></label><label><span>Date</span><input name="date" type="date" value="${today}" required></label><label><span>Time</span><input name="time" type="time" value="09:00" required></label><label><span>Location</span><input name="location" maxlength="80"></label>`;dialog.showModal();setTimeout(()=>fields.querySelector("input")?.focus(),0);}
-function addItem(event){event.preventDefault();const dialog=$("itemDialog"),data=Object.fromEntries(new FormData(event.currentTarget));if(dialog.dataset.kind==="task")sampleData.tasks.unshift({id:crypto.randomUUID(),title:data.title.trim(),category:data.category,when:data.when,priority:data.priority==="high",done:false});else sampleData.events.push({id:crypto.randomUUID(),title:data.title.trim(),date:data.date,time:data.time,location:data.location.trim(),source:"device"});saveDeviceData();dialog.close();renderTaskPage();renderCalendarPage();renderHome();}
+function addItem(event){event.preventDefault();const dialog=$("itemDialog"),data=Object.fromEntries(new FormData(event.currentTarget));if(dialog.dataset.kind==="task")sampleData.tasks.unshift({id:crypto.randomUUID(),title:data.title.trim(),category:data.category,when:data.when,priority:data.priority==="high",done:false,...newOwner()});else sampleData.events.push({id:crypto.randomUUID(),title:data.title.trim(),date:data.date,time:data.time,location:data.location.trim(),source:"device",...newOwner()});saveDeviceData();dialog.close();renderTaskPage();renderCalendarPage();renderHome();}
 async function signIn(){try{const data=await api("/api/session",{method:"POST",body:JSON.stringify({name:$("accountName").value,email:$("accountEmail").value,pin:$("accountPin").value})});profile.account={signedIn:true,...data.account};$("accountPin").value="";profile.personName=data.account.name.split(" ")[0];Object.keys(addOnRegistry).forEach(id=>{if(data.account.addOns?.[id])profile.addOns[id]={...profile.addOns[id],...data.account.addOns[id]};});saveProfile();await syncDeviceData();applyProfile();renderSettings();renderConnections();renderHome();renderCalendarPage();renderTaskPage();renderWidgetSettings();loadGoogleCalendar();setMessage("Signed in securely on this mirror.");}catch(error){setMessage(error.message,true);}}
 async function signOut(){try{await api("/api/session",{method:"DELETE"});profile.account.signedIn=false;profile.account.id="";Object.keys(addOnRegistry).forEach(id=>{if(addOnRegistry[id].requiresConnection&&profile.addOns[id])profile.addOns[id].connectionStatus="disconnected";});spotifyDeviceId="";spotifyActiveDeviceId="";spotifyRecentTracks=[];spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;if(spotifyPlayer){spotifyPlayer.disconnect();spotifyPlayer=null;}saveProfile();applyAvailability();renderSettings();renderConnections();renderSpotifyPage();renderSpotifyRecent();renderHome();setMessage("Signed out of this mirror.");}catch(error){setMessage(error.message,true);}}
 async function restoreSession(){try{const data=await api("/api/session");if(data.signedIn){profile.account={signedIn:true,...data.account};Object.keys(addOnRegistry).forEach(id=>{if(data.account.addOns?.[id])profile.addOns[id]={...profile.addOns[id],...data.account.addOns[id]};});}else profile.account.signedIn=false;saveProfile();}catch{profile.account.signedIn=false;}}
