@@ -439,6 +439,7 @@
     if (!A.status?.configured) return speak(`I'm not connected to my brain yet. Add an Anthropic API key to the Reflect config file and restart me.`);
     A.busy = true;
     setState("thinking");
+    A.timing = { asked: performance.now() };
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
     let reply = "", talk = null;
@@ -447,7 +448,7 @@
     // sentence while the rest of the reply is still being written.
     const feed = sentenceFeeder((sentence) => {
       if (!live()) return;
-      if (!talk) { talk = startTalking(); showReply(""); }
+      if (!talk) { talk = startTalking(); showReply(""); if (A.timing && !A.timing.text) A.timing.text = performance.now(); }
       showReplyPart(sentence);
       talk.say(sentence);
     });
@@ -541,10 +542,13 @@
     return { content, stop_reason };
   }
   // Splits streaming text into speakable pieces: whole sentences, with very short ones joined to the
-  // next so the voice doesn't sound clipped. The first piece is allowed to be short so it starts fast.
+  // next so the voice doesn't sound clipped. The first piece is allowed to be short so it starts fast:
+  // if the opening sentence is a long one, he starts on its first phrase (up to a comma) while the
+  // rest is still being made.
   function sentenceFeeder(say) {
     let buffer = "", first = true;
-    const end = /[.!?]+["')\]]*\s+/g;
+    // A full stop after an abbreviation ("e.g.", "Mr.", an initial) isn't the end of a sentence.
+    const end = /(?<!\b(?:[A-Za-z]|e\.g|i\.e|Mr|Mrs|Ms|Dr|St|vs))[.!?]+["')\]]*\s+/g;
     return {
       push(text) {
         buffer += text;
@@ -555,6 +559,13 @@
           if (stop - cut >= (first ? 12 : 25)) { const piece = buffer.slice(cut, stop).trim(); if (piece) { say(piece); first = false; } cut = stop; }
         }
         buffer = buffer.slice(cut);
+        if (first) {
+          const pause = /(?:[,;:\u2013\u2014]|\s-)\s+/g;
+          while ((m = pause.exec(buffer))) {
+            const stop = m.index + m[0].length;
+            if (stop >= 12) { say(buffer.slice(0, stop).trim()); first = false; buffer = buffer.slice(stop); break; }
+          }
+        }
       },
       flush() { const piece = buffer.trim(); buffer = ""; if (piece) { say(piece); first = false; } }
     };
@@ -612,28 +623,61 @@
       parts.forEach((part, i) => {
         const u = new SpeechSynthesisUtterance(part.trim());
         if (A.voice) { u.voice = A.voice; u.lang = A.voice.lang; } else u.lang = "en-GB";
-        u.rate = 1.03; u.pitch = 0.92;
+        // Lowering the pitch is what made these voices sound robotic; a natural pitch, slightly brisk, sounds human.
+        u.rate = 1.08; u.pitch = 1;
         u.onboundary = () => { A.speakPulse = 1; };
-        u.onstart = () => { A.speakPulse = 1; };
+        u.onstart = () => { A.speakPulse = 1; firstSound(); };
         if (i === parts.length - 1) { u.onend = done; u.onerror = done; }
         speechSynthesis.speak(u);
       });
     });
   }
-  // Server voices take a moment per request, so the reply is spoken a sentence at a time: the first
-  // sentence plays as soon as it's ready while the next one is already being generated.
-  function speechChunks(text) {
-    const sentences = text.match(/[^.!?]+[.!?]*\s*/g)?.map((x) => x.trim()).filter(Boolean) || [text];
-    const chunks = [];
-    sentences.forEach((x) => { const last = chunks.length - 1; if (last >= 0 && (chunks[last].length < 25 || x.length < 12)) chunks[last] += ` ${x}`; else chunks.push(x); });
-    return chunks;
+  // Written text has bits a voice reads out badly or robotically (symbols, markdown, abbreviations),
+  // so they're turned into the words a person would say before speaking.
+  function speakable(text) {
+    return String(text || "")
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/[*_#`~>|]+/g, "")
+      .replace(/(\d)\s*°\s*C\b/g, "$1 degrees").replace(/(\d)\s*°\s*F\b/g, "$1 degrees Fahrenheit").replace(/°/g, " degrees")
+      .replace(/(\d)\s*%/g, "$1 percent")
+      .replace(/\s+&\s+/g, " and ")
+      .replace(/\be\.g\.\s*/gi, "for example ").replace(/\bi\.e\.\s*/gi, "that is ").replace(/\betc\./gi, "and so on")
+      .replace(/\s+[-\u2013\u2014]\s+/g, ", ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
   async function fetchSpeech(text) {
     const response = await fetch("/api/assistant/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
     if (!response.ok) throw new Error("Server voice unavailable");
     return URL.createObjectURL(await response.blob());
   }
-  function playSpeech(url) {
+  // Plays a clip through Web Audio with the silence the voice pads at each end trimmed off, so
+  // sentences follow each other at a natural pace instead of with a robotic pause between them.
+  async function playSpeech(url) {
+    const ac = audioContext();
+    if (!ac || ac.state !== "running") return playSpeechElement(url);
+    let clip;
+    try { clip = await ac.decodeAudioData(await (await fetch(url)).arrayBuffer()); }
+    catch { return playSpeechElement(url); }
+    URL.revokeObjectURL(url);
+    const data = clip.getChannelData(0), quiet = 0.004, lead = Math.round(clip.sampleRate * 0.04), tail = Math.round(clip.sampleRate * 0.12);
+    let start = 0, end = data.length - 1;
+    while (start < end && Math.abs(data[start]) < quiet) start++;
+    while (end > start && Math.abs(data[end]) < quiet) end--;
+    start = Math.max(0, start - lead); end = Math.min(data.length, end + tail);
+    const source = ac.createBufferSource();
+    source.buffer = clip;
+    A.outAnalyser = ac.createAnalyser(); A.outAnalyser.fftSize = 512;
+    A.outBuffer = new Uint8Array(A.outAnalyser.fftSize);
+    source.connect(A.outAnalyser); A.outAnalyser.connect(ac.destination);
+    A.currentSource = source;
+    return new Promise((resolve) => {
+      source.onended = resolve;
+      source.start(0, start / clip.sampleRate, Math.max(0.05, (end - start) / clip.sampleRate));
+      firstSound();
+    }).finally(() => { if (A.currentSource === source) A.currentSource = null; A.outAnalyser = null; });
+  }
+  function playSpeechElement(url) {
     const audio = new Audio(url);
     A.currentAudio = audio;
     const ac = audioContext();
@@ -649,7 +693,7 @@
       audio.onended = resolve;
       audio.onpause = resolve;
       audio.onerror = () => reject(new Error("Playback failed"));
-      audio.play().catch(reject);
+      audio.play().then(firstSound, reject);
     }).finally(() => { URL.revokeObjectURL(url); A.currentAudio = null; A.outAnalyser = null; });
   }
   // Which voice to use for this reply. With the built-in voice set, Jarvis waits for it to finish
@@ -673,6 +717,8 @@
         const made = generating.then(async () => {
           const make = await maker;
           if (!make || broken || A.speakRun !== run) return null;
+          chunk = speakable(chunk);
+          if (A.timing && !A.timing.voiceStart) { A.timing.voiceStart = performance.now(); A.timing.chars = chunk.length; }
           try { return await make(chunk); } catch {}
           try { return await make(chunk); } catch { broken = true; return null; }
         });
@@ -681,7 +727,7 @@
           const url = await made.catch(() => null);
           if (A.speakRun !== run) { if (url) URL.revokeObjectURL(url); return; }
           if (url) await playSpeech(url).catch(() => {});
-          else { await voicesLoaded(); if (A.speakRun === run) await speakBrowser(chunk); }
+          else { await voicesLoaded(); if (A.speakRun === run) await speakBrowser(speakable(chunk)); }
         });
       },
       done: () => playing
@@ -712,20 +758,33 @@
     if (K.loading) return K.loading;
     const started = performance.now();
     return (K.loading = kokoroCall({ type: "load" }))
-      .then(() => { K.ready = true; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); })
+      .then((data) => { K.ready = true; K.engine = data.engine || "built-in voice"; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); })
       .catch((error) => { K.failed = true; console.warn("Built-in voice unavailable:", error.message); });
   }
   async function makeKokoro(text) {
-    const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice() });
+    // Kokoro's normal pace sounds slow and drawn out for Jarvis; a little quicker sounds natural.
+    const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice(), speed: 1.12 });
     return URL.createObjectURL(blob);
   }
 
+  // The first time a reply makes a sound, report how long it took (in the server window), so a slow
+  // start can be pinned on Claude or on the voice.
+  function firstSound() {
+    const t = A.timing;
+    if (!t || t.sound) return;
+    t.sound = performance.now();
+    const engine = A.status?.builtInVoice && K.ready ? K.engine : A.status?.serverVoice ? A.status.voiceProvider : `browser voice ${A.voice?.name || ""}`.trim();
+    const report = { firstSound: t.sound - t.asked, firstText: t.text ? t.text - t.asked : null, voice: t.voiceStart ? t.sound - t.voiceStart : null, chars: t.chars || 0, engine };
+    console.info("Jarvis timing", report);
+    fetch("/api/assistant/timing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(report) }).catch(() => {});
+  }
   // Cuts Jarvis off mid-answer: anything still to come from that answer stays silent.
-  function interrupt() { A.turn++; stopSpeaking(); }
+  function interrupt() { A.turn++; A.timing = null; stopSpeaking(); }
   function stopSpeaking() {
     A.speakRun = (A.speakRun || 0) + 1;
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (A.currentAudio) { A.currentAudio.pause(); A.currentAudio = null; }
+    if (A.currentSource) { try { A.currentSource.stop(); } catch {} A.currentSource = null; }
   }
   // Speaking happens in three steps so a streamed reply can start talking before it has finished.
   function startTalking() {
@@ -746,7 +805,8 @@
   async function speak(text) {
     showReply(text);
     const talk = startTalking();
-    speechChunks(text).forEach((chunk) => talk.say(chunk));
+    const feed = sentenceFeeder((chunk) => talk.say(chunk));
+    feed.push(`${text} `); feed.flush();
     return finishTalking(talk);
   }
 
