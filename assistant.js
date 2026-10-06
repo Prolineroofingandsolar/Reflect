@@ -11,7 +11,8 @@
     recognition: null, srPaused: false, srUnavailable: false, srBlocked: false, awaitingCommand: false, commandTimer: null,
     audioCtx: null, micAnalyser: null, outAnalyser: null, micBuffer: null, outBuffer: null,
     level: 0, speakPulse: 0, currentAudio: null, voice: null, closeTimer: null, recording: false,
-    turn: 0, queued: "", heardFinal: "", endTimer: null, ducked: null
+    turn: 0, queued: "", heardFinal: "", endTimer: null, ducked: null,
+    speechFrom: 0, quietSince: 0, idJob: null, enrolling: false, pendingEnrol: null
   };
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -45,6 +46,7 @@
   const stateText = { idle: "Standing by", listening: "Listening", thinking: "Thinking", speaking: "", error: "" };
 
   function setState(state) {
+    if (A.state === "speaking" && state !== "speaking") A.quietSince = Date.now();
     A.state = state;
     if (state === "idle") unduckMusic(); else duckMusic();
     root.dataset.state = state;
@@ -70,6 +72,7 @@
     requestAnimationFrame(draw);
   }
   function closeStage() {
+    A.enrolling = false;
     clearTimeout(A.closeTimer);
     clearTimeout(A.commandTimer);
     A.awaitingCommand = false;
@@ -174,7 +177,7 @@
     const now = new Date();
     const lines = [
       `Time: ${now.toLocaleString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
-      `Person: ${profile.personName || "unknown"}`,
+      ...People.contextLines(),
       `Screen showing: ${activeScreen()}`,
       `First conversation today: ${firstToday() ? "yes" : "no"}`,
       ...weatherLines()
@@ -236,7 +239,7 @@
     if (tool === "add_task") {
       const title = String(input.title || "").trim().slice(0, 80);
       if (!title) throw new Error("The task needs a title.");
-      sampleData.tasks.unshift({ id: crypto.randomUUID(), title, category: input.category || "Personal", when: input.when || "Today", priority: Boolean(input.high_priority), done: false });
+      sampleData.tasks.unshift({ id: crypto.randomUUID(), title, category: input.category || "Personal", when: input.when || "Today", priority: Boolean(input.high_priority), done: false, ...newOwner() });
       saveDeviceData(); renderTaskPage(); renderHome();
       return `Added task "${title}".`;
     }
@@ -250,7 +253,7 @@
     if (tool === "add_event") {
       const title = String(input.title || "").trim().slice(0, 80);
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(input.date || "") || !/^\d{2}:\d{2}$/.test(input.time || "")) throw new Error("The event needs a title, a YYYY-MM-DD date and an HH:MM time.");
-      sampleData.events.push({ id: crypto.randomUUID(), title, date: input.date, time: input.time, location: String(input.location || "").trim().slice(0, 80), source: "device" });
+      sampleData.events.push({ id: crypto.randomUUID(), title, date: input.date, time: input.time, location: String(input.location || "").trim().slice(0, 80), source: "device", ...newOwner() });
       saveDeviceData(); renderCalendarPage(); renderHome();
       return `Added "${title}" on ${input.date} at ${input.time}.`;
     }
@@ -298,7 +301,7 @@
         at = next.getTime();
       }
       if (!Number.isFinite(at) || at <= Date.now()) throw new Error("That time has already passed.");
-      addTimer({ kind: "reminder", label: text, at });
+      addTimer({ kind: "reminder", label: text, at, who: People.list().length ? People.greetingName() : "" });
       return `Reminder set for ${new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}: ${text}.`;
     }
     if (tool === "cancel_timer") {
@@ -343,6 +346,18 @@
       A.voice = next;
       try { localStorage.setItem(voiceKey, next.name); } catch {}
       return `Voice changed to ${next.name}, ${voices.indexOf(next) + 1} of ${voices.length}: ${voices.map((v) => v.name).join(", ")}.`;
+    }
+    if (tool === "learn_voice") {
+      const who = String(input.name || "").trim();
+      if (!who) throw new Error("Ask for their name first.");
+      A.pendingEnrol = { name: who, address: String(input.address || "").trim() };
+      return `Ready to learn ${who}'s voice. When you finish speaking, the mirror shows four short lines for them to read out loud, one at a time. Tell them that in one short sentence.`;
+    }
+    if (tool === "forget_voice") {
+      const person = People.byName(input.name);
+      if (!person) throw new Error(`I don't know a voice called ${input.name}.`);
+      People.forget(person.id);
+      return `Forgot ${person.name}'s voice. Their tasks and events are now shared.`;
     }
     if (tool === "set_display") {
       if (Number.isFinite(input.brightness)) profile.brightness = Math.max(30, Math.min(100, Math.round(input.brightness)));
@@ -439,6 +454,7 @@
     if (!A.status?.configured) return speak(`I'm not connected to my brain yet. Add an Anthropic API key to the Reflect config file and restart me.`);
     A.busy = true;
     setState("thinking");
+    await recogniseSpeaker();
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
     let reply = "", talk = null;
@@ -487,10 +503,13 @@
     } finally {
       A.busy = false;
     }
-    if (A.queued) { const next = A.queued; A.queued = ""; return ask(next); }
-    if (!live()) return;
-    if (talk) return finishTalking(talk);
-    await speak(reply || "Done.");
+    if (A.queued) { const next = A.queued; A.queued = ""; A.pendingEnrol = null; return ask(next); }
+    if (!live()) { A.pendingEnrol = null; return; }
+    if (talk) await finishTalking(talk);
+    else await speak(reply || "Done.");
+    const enrol = A.pendingEnrol;
+    A.pendingEnrol = null;
+    if (enrol && live()) learnVoice(enrol.name, enrol.address);
   }
 
   // Reads Claude's reply as it streams in, rebuilding the same content blocks a normal reply has
@@ -775,6 +794,7 @@
   }
 
   function handleTranscript(transcript, isFinal) {
+    if (A.enrolling) return; // reading their enrolment lines, not talking to him
     if (A.busy || A.state === "speaking") {
       // While he's talking or thinking, only his name gets through: it cuts him off and he listens.
       // Anything else is ignored, so he doesn't react to his own voice.
@@ -787,6 +807,7 @@
     if (!match) return;
     const after = transcript.slice(match.index + match[0].length).trim();
     listenForCommand(10000, !after);
+    A.speechFrom = Date.now() - 2500; // their voice started a moment before his name was recognised
     heard(after, isFinal);
   }
   // Collects what's being said until there's a proper pause, so a sentence with a breath in the
@@ -794,7 +815,7 @@
   function heard(text, isFinal) {
     clearTimeout(A.endTimer);
     if (text) keepListening();
-    if (isFinal && text) A.heardFinal = `${A.heardFinal} ${text}`.trim();
+    if (isFinal && text) { A.heardFinal = `${A.heardFinal} ${text}`.trim(); A.idJob = whoIsSpeaking(); }
     const sofar = isFinal ? A.heardFinal : `${A.heardFinal} ${text}`.trim();
     if (sofar) showHeard(sofar);
     if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 800 : 2200);
@@ -816,7 +837,7 @@
     clearTimeout(A.closeTimer);
     clearTimeout(A.commandTimer);
     setState("listening");
-    if (greet) { showHeard(""); showReply(""); chime(); }
+    if (greet) { showHeard(""); showReply(""); chime(); A.speechFrom = Date.now(); }
     if (SR && !A.srUnavailable && !A.srBlocked) {
       A.awaitingCommand = true;
       A.srPaused = false;
@@ -882,6 +903,7 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "I couldn't make that out.");
       if (!data.text) { setState("idle"); showReply("I didn't catch that."); return closeSoon(3000); }
+      A.idJob = whoIsSpeaking();
       ask(data.text);
     } catch (error) {
       A.recording = false;
@@ -912,6 +934,210 @@
     // A tap cuts him off, even mid-answer, and he listens.
     if (A.busy || A.state === "speaking") interrupt();
     listenForCommand(8000, true);
+  }
+
+  // ---------- Who's speaking ----------
+  // Once anyone has taught Jarvis their voice, the mirror keeps the last few seconds of microphone
+  // audio (only in memory, never saved or sent). When a request ends, that stretch of speech is
+  // turned into a voiceprint by voice-id-worker.js and matched against the people on this mirror.
+  const V = { worker: null, nextId: 0, waiting: new Map(), chunks: [], running: false };
+  function voiceIdCall(message) {
+    if (!V.worker) {
+      V.worker = new Worker("voice-id-worker.js", { type: "module" });
+      V.worker.onmessage = ({ data }) => { const done = V.waiting.get(data.id); if (!done) return; V.waiting.delete(data.id); data.ok ? done.resolve(data) : done.reject(new Error(data.error)); };
+      V.worker.onerror = (event) => { V.waiting.forEach((w) => w.reject(new Error(event.message || "Voice recognition failed"))); V.waiting.clear(); V.worker = null; };
+    }
+    const id = ++V.nextId;
+    return new Promise((resolve, reject) => { V.waiting.set(id, { resolve, reject }); V.worker.postMessage({ id, ...message }); });
+  }
+  function keepAudio(samples, rate) {
+    const now = Date.now();
+    V.chunks.push({ at: now, rate, samples });
+    while (V.chunks.length && now - V.chunks[0].at > 12000) V.chunks.shift();
+  }
+  // Reads the raw microphone. Chrome can read the track directly, with no need for a tap first to
+  // unlock audio; other browsers go through a small audio worklet.
+  async function startEars() {
+    if (V.running) return true;
+    V.running = true;
+    try {
+      await micAnalyser();
+      const track = A.micStream.getAudioTracks()[0].clone();
+      if (window.MediaStreamTrackProcessor) {
+        const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+        (async () => {
+          for (;;) {
+            const { value: frame, done } = await reader.read();
+            if (done) break;
+            const samples = new Float32Array(frame.numberOfFrames);
+            try { frame.copyTo(samples, { planeIndex: 0, format: "f32-planar" }); keepAudio(samples, frame.sampleRate); } catch {}
+            frame.close();
+          }
+          V.running = false;
+        })();
+        return true;
+      }
+      const ac = audioContext();
+      const code = `registerProcessor("reflect-ears", class extends AudioWorkletProcessor {
+        constructor() { super(); this.buf = new Float32Array(4096); this.n = 0; }
+        process(inputs) {
+          const ch = inputs[0] && inputs[0][0];
+          if (ch) { for (let i = 0; i < ch.length; i++) { this.buf[this.n++] = ch[i]; if (this.n === this.buf.length) { this.port.postMessage(this.buf); this.buf = new Float32Array(4096); this.n = 0; } } }
+          return true;
+        }
+      });`;
+      await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+      const node = new AudioWorkletNode(ac, "reflect-ears");
+      node.port.onmessage = ({ data }) => keepAudio(data, ac.sampleRate);
+      ac.createMediaStreamSource(new MediaStream([track])).connect(node);
+      node.connect(ac.destination); // silent; keeps the worklet running
+      return true;
+    } catch (error) {
+      console.warn("Voice recognition can't hear the microphone:", error.message);
+      V.running = false;
+      return false;
+    }
+  }
+  // Microphone audio since a moment in time, as 16 kHz mono (what the voice model expects).
+  function audioSince(from) {
+    const parts = V.chunks.filter((c) => c.at >= from);
+    if (!parts.length) return new Float32Array(0);
+    const rate = parts[0].rate, raw = new Float32Array(parts.reduce((n, c) => n + c.samples.length, 0));
+    let o = 0;
+    for (const c of parts) { raw.set(c.samples, o); o += c.samples.length; }
+    if (rate === 16000) return raw;
+    const step = rate / 16000, out = new Float32Array(Math.floor(raw.length / step));
+    for (let i = 0; i < out.length; i++) {
+      const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step));
+      let sum = 0;
+      for (let j = a; j < b; j++) sum += raw[j];
+      out[i] = sum / (b - a);
+    }
+    return out;
+  }
+  // Keeps just the speech, so pauses and room noise don't blur the voiceprint.
+  function speechOnly(pcm) {
+    const frame = 480, levels = [];
+    for (let i = 0; i + frame <= pcm.length; i += frame) {
+      let sum = 0;
+      for (let j = i; j < i + frame; j++) sum += pcm[j] * pcm[j];
+      levels.push(Math.sqrt(sum / frame));
+    }
+    if (!levels.length) return pcm.slice(0, 0);
+    const loud = [...levels].sort((a, b) => a - b)[Math.floor(levels.length * 0.95)];
+    const bar = Math.max(0.006, loud * 0.12);
+    const keep = levels.map((l, i) => l >= bar || levels[i - 1] >= bar || levels[i + 1] >= bar);
+    const out = new Float32Array(keep.filter(Boolean).length * frame);
+    let o = 0;
+    keep.forEach((k, i) => { if (k) { out.set(pcm.subarray(i * frame, (i + 1) * frame), o); o += frame; } });
+    return out.subarray(0, Math.min(out.length, 16000 * 8));
+  }
+  function level(ms) {
+    let sum = 0, n = 0;
+    for (const c of V.chunks.filter((c) => Date.now() - c.at <= ms)) for (const x of c.samples) { sum += x * x; n++; }
+    return n ? Math.sqrt(sum / n) : 0;
+  }
+  // Whose voice was that? Uses the speech since they started talking, after Jarvis stopped.
+  async function whoIsSpeaking() {
+    if (!V.running || !People.hasVoices()) return null;
+    const from = Math.max(A.speechFrom || 0, A.quietSince || 0, Date.now() - 9000);
+    const speech = speechOnly(audioSince(from));
+    if (speech.length < 16000) return null; // under a second of speech is too little to go on
+    const { embedding } = await voiceIdCall({ type: "embed", audio: speech });
+    return People.identify(embedding, A.status?.voiceMatchThreshold);
+  }
+  // Switches the mirror to whoever just spoke (or to guest mode for a voice it doesn't know).
+  // Typed requests, and speech too short to judge, leave it on whoever it was.
+  async function recogniseSpeaker() {
+    const job = A.idJob;
+    A.idJob = null;
+    // Never holds up the answer for long (the first time, the voice model may still be downloading).
+    const match = job ? await Promise.race([job, new Promise((r) => setTimeout(r, 3000))]).catch((error) => { console.warn("Voice recognition:", error.message); return null; }) : null;
+    if (match?.person) {
+      const changed = People.current()?.id !== match.person.id || People.isGuest();
+      People.setActive(match.person.id, match.score);
+      if (changed) logAction(`Voice match: ${match.person.name}, ${Math.round(match.score * 100)}%`);
+    } else if (match) {
+      if (!People.isGuest()) logAction("Voice not recognised: guest mode");
+      People.setActive("guest");
+    }
+    People.touch();
+  }
+
+  // Teaching Jarvis a voice: four short lines read out loud, each turned into a voiceprint.
+  const enrolLines = [
+    "The quick brown fox jumps over the lazy dog.",
+    "Could you put the kettle on and play something relaxing?",
+    "Remind me to call the garage tomorrow at ten o'clock.",
+    "What's the weather looking like for the weekend?"
+  ];
+  async function say(text) {
+    showReply(text);
+    const talk = startTalking();
+    speechChunks(text).forEach((chunk) => talk.say(chunk));
+    try { await talk.done(); } catch {}
+  }
+  // Records one line: waits for them to start, then stops after a short pause.
+  async function recordLine() {
+    const started = Date.now();
+    let heard = 0, lastLoud = 0;
+    await new Promise((resolve) => {
+      const tick = setInterval(() => {
+        const now = Date.now();
+        if (level(120) > 0.02) { heard ||= now; lastLoud = now; }
+        if ((heard && now - lastLoud > 1100 && now - heard > 800) || (!heard && now - started > 8000) || now - started > 12000 || !A.enrolling) { clearInterval(tick); resolve(); }
+      }, 80);
+    });
+    if (!heard) return null;
+    const speech = speechOnly(audioSince(heard - 400));
+    return speech.length >= 16000 * 1.2 ? speech : null;
+  }
+  async function learnVoice(who, address = "") {
+    who = String(who || "").trim();
+    if (!who || A.enrolling) return;
+    if (A.busy || A.state === "speaking") interrupt();
+    clearTimeout(A.commandTimer);
+    A.awaitingCommand = false;
+    A.enrolling = true;
+    openStage();
+    clearLog();
+    showHeard("");
+    try {
+      if (!(await startEars())) throw new Error("I can't hear the microphone. Allow microphone access for the mirror, then try again.");
+      const ready = voiceIdCall({ type: "load" });
+      ready.catch(() => {});
+      await say(`Right then, ${who}. Read each line on the screen out loud, one at a time.`);
+      if (!A.enrolling) return;
+      const prints = [];
+      for (let i = 0; i < enrolLines.length && A.enrolling; i++) {
+        setState("listening");
+        HUD.decode(heardEl, `Line ${i + 1} of ${enrolLines.length}: read it out loud`, { cps: 160, scramble: 60, caret: false });
+        showReply(enrolLines[i]);
+        chime();
+        await new Promise((r) => setTimeout(r, 400)); // let the chime pass
+        const clip = await recordLine();
+        if (clip) { prints.push(voiceIdCall({ type: "embed", audio: clip }).then((r) => r.embedding)); logAction(`Line ${i + 1} captured`); }
+        else logAction(`Line ${i + 1}: I didn't catch that`, true);
+      }
+      if (!A.enrolling) return;
+      setState("thinking");
+      showHeard("");
+      showReply("Learning your voice…");
+      logAction("Building voiceprint (the first time downloads the voice model)");
+      await ready;
+      const done = (await Promise.allSettled(prints)).filter((r) => r.status === "fulfilled").map((r) => r.value);
+      if (done.length < 3) throw new Error(`I only caught ${done.length} of the ${enrolLines.length} lines clearly. Let's try again somewhere a little quieter.`);
+      const person = People.learn(who, done, address);
+      logAction(`Voice learned: ${person.name}`);
+      A.enrolling = false;
+      await speak(`Thank you, ${person.name}. I'll know your voice from now on.`);
+    } catch (error) {
+      A.enrolling = false;
+      logAction(error.message, true);
+      await speak(/^I /.test(error.message) ? error.message : `I couldn't learn that voice: ${error.message}`);
+    } finally {
+      A.enrolling = false;
+    }
   }
 
   // ---------- The orb ----------
@@ -1106,7 +1332,7 @@
     if (due.length) {
       saveTimers(list.filter((t) => t.at > now));
       // Skip anything that went off long ago while the mirror was off.
-      due.filter((t) => now - t.at < 10 * 60000).forEach((t) => announce(t.kind === "timer" ? `Your ${t.label} timer is done.` : `A reminder: ${t.label}.`));
+      due.filter((t) => now - t.at < 10 * 60000).forEach((t) => announce(t.kind === "timer" ? `Your ${t.label} timer is done.` : `${t.who ? `${t.who}, a` : "A"} reminder: ${t.label}.`));
     } else renderTimers();
   }, 1000);
   renderTimers();
@@ -1123,6 +1349,7 @@
     if (event.target.matches("input,select,textarea") || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key.toLowerCase() === "j") { event.preventDefault(); activate(); }
   });
+  window.addEventListener("reflect:learn-voice", (event) => { if (A.status?.configured) learnVoice(event.detail?.name); });
   // Browsers only allow audio after the first interaction; unlock it on the first tap anywhere.
   document.addEventListener("pointerdown", () => { audioContext(); }, { once: true });
 
@@ -1138,6 +1365,8 @@
       : `${name()} needs an Anthropic API key in reflect-os.config.json`;
     root.classList.toggle("is-unconfigured", !A.status.configured);
     if (A.status.configured && A.status.wakeWord) startRecognition();
+    // With voices to recognise, keep an ear on the microphone and get the voice model ready.
+    if (A.status.configured && People.hasVoices()) { startEars(); setTimeout(() => voiceIdCall({ type: "load" }).catch((error) => console.warn("Voice recognition unavailable:", error.message)), 4000); }
   }
   init();
 })();

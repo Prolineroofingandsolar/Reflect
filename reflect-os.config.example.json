@@ -7,6 +7,7 @@
   "anthropicWorkspaceId": "",
   "assistantName": "Jarvis",
   "assistantWakeWord": true,
+  "voiceMatchThreshold": 0,
   "openaiApiKey": "",
   "builtInVoice": "",
   "voiceStudioUrl": "",

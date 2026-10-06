@@ -41,6 +41,10 @@ const assistantConfig = {
   address: String(localConfig.assistantAddress ?? "sir").trim(),
   model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-sonnet-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
+  // Optional: how closely a voice must match before Jarvis says who it is, from 0 to 1. Leave it out
+  // and each person gets their own bar, learned when their voice is. Raise it (say 0.9) if he mixes
+  // people up; lower it (say 0.75) if he often says he doesn't recognise you.
+  voiceMatchThreshold: Number(localConfig.voiceMatchThreshold) || 0,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
   openaiKey: process.env.OPENAI_API_KEY || localConfig.openaiApiKey || "",
@@ -553,6 +557,8 @@ Everything you write is spoken aloud by a text-to-speech voice and shown briefly
 - A touch of dry humour is welcome; never let it get in the way of the answer.
 - ${assistantConfig.address ? `Address the person as "${assistantConfig.address}" now and then, the way the butler addresses Tony Stark; use their name only occasionally.` : "Use the person's name now and then, not in every reply."}
 
+Several people can use the mirror, and it recognises them by voice. The context's Person line says who is speaking: talk to that person, and treat the calendar and tasks shown as theirs plus shared household ones. When the Person line says how to address them, use that instead of the usual form of address; for anyone other than the mirror's owner, otherwise use their first name now and then. A guest is someone whose voice the mirror doesn't know: be welcoming, and if they'd like to be recognised, offer to learn their voice. Things you add (tasks, events, reminders) belong to whoever asked.
+
 Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
 
 When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
@@ -575,6 +581,8 @@ const assistantTools = [
   { name: "set_weather_location", description: "Change the town or city the mirror shows weather for.", input_schema: { type: "object", properties: { place: { type: "string" } }, required: ["place"], additionalProperties: false } },
   { name: "show_widget", description: "Show or hide a widget on the mirror's home screen.", input_schema: { type: "object", properties: { widget: { type: "string", enum: ["clock", "weather", "calendar", "tasks", "affirmations", "music", "smartHome", "photos"] }, visible: { type: "boolean" } }, required: ["widget", "visible"], additionalProperties: false } },
   { name: "change_voice", description: "Change the voice you speak with, when asked. Without a name, moves to the next available voice; with a name, picks the voice whose name contains it. Tell the person the new voice's name in a few words.", input_schema: { type: "object", properties: { name: { type: "string", description: "Part of a voice name, such as Daniel or Jamie. Leave out to try the next voice." } }, additionalProperties: false } },
+  { name: "learn_voice", description: "Learn someone's voice so the mirror recognises them from now on and shows them their own tasks and calendar. Use when someone asks you to learn, remember or recognise their voice, or to add them as a person. Needs their name: use the Person line if it is them, otherwise ask. After you reply, the mirror shows them four short lines to read aloud.", input_schema: { type: "object", properties: { name: { type: "string", description: "Their first name" }, address: { type: "string", description: "Optional: how to address them, such as sir or ma'am, if they said" } }, required: ["name"], additionalProperties: false } },
+  { name: "forget_voice", description: "Forget a person's voice on the mirror, when asked. Their tasks and events become shared.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"], additionalProperties: false } },
   { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } },
   // Runs on Anthropic's servers: news, sport, opening times, prices and anything else live.
   { type: "web_search_20260209", name: "web_search", max_uses: 3 }
@@ -601,7 +609,7 @@ async function rawBody(req, limit) {
 
 async function assistantApi(req, res, url) {
   if (url.pathname === "/api/assistant/status" && req.method === "GET") {
-    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, serverTranscription: Boolean(assistantConfig.openaiKey) });
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, serverTranscription: Boolean(assistantConfig.openaiKey), voiceMatchThreshold: assistantConfig.voiceMatchThreshold });
   }
   if (req.method !== "POST") return json(res, 404, { error: "Not found" });
   if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
@@ -712,7 +720,7 @@ async function assistantApi(req, res, url) {
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "assistant.css", "addons/catalog.json"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "people.js", "voice-worker.js", "voice-id-worker.js", "assistant.css", "addons/catalog.json"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");

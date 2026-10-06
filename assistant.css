@@ -344,3 +344,47 @@ body.is-editing .jv-timers { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .jv-stage, .jv-stage::before, .jv-br, .jv-log li, .jv-timer, .jv-timer b, .jv-reply, .jv-state::after { animation: none !important; }
 }
+
+/* Who's at the mirror: when Jarvis recognises a voice, a target-lock readout names them at the top
+   of the glass. A scan line sweeps across as it locks on, then it holds quietly. */
+.who-badge, .people-row {
+  --jv: 86, 216, 255;
+}
+.who-badge {
+  position: fixed;
+  top: clamp(124px, 11vw, 144px); /* under the nav bar and any timers */
+  left: 50%;
+  z-index: 9;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 16px 7px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 1px solid rgba(var(--jv), 0.35);
+  border-width: 1px 0;
+  font: 500 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(180, 225, 240, 0.62);
+  pointer-events: none;
+}
+.who-badge[hidden] { display: none; }
+.who-badge b { font-weight: 500; color: rgb(var(--jv)); text-shadow: 0 0 10px rgba(var(--jv), 0.6); }
+.who-badge i {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(var(--jv), 0.35), transparent);
+  transform: translateX(-100%);
+}
+.who-badge.is-new { animation: jv-lock-on 800ms cubic-bezier(.2, .8, .2, 1) both; }
+.who-badge.is-new i { animation: who-scan 900ms 150ms ease-out both; }
+@keyframes who-scan { to { transform: translateX(100%); } }
+body.is-editing .who-badge, body.in-settings .who-badge { display: none; }
+
+.people-row .ghost-button, #learnVoiceForm .ghost-button { justify-self: end; width: auto; }
+.people-row small { margin-left: 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(var(--jv)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .who-badge, .who-badge i { animation: none !important; }
+}
