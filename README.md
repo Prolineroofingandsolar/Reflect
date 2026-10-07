@@ -24,7 +24,7 @@ Add an Affirmations widget to the home screen from Settings or edit mode. Choose
 
 Install the Smart Home add-on, then connect your Home Assistant server URL and a long-lived access token (Home Assistant → your profile → Security → Long-lived access tokens). Lights, switches, fans, locks, covers, and scenes become controllable from the mirror, with climate and sensor readouts. The token is encrypted on the device and never sent to the browser.
 
-Devices are grouped by the rooms (areas) you set in Home Assistant, each with an All on / All off button. Tap a light to switch it, or its ◐ button for brightness, colour and warm/cool white. Jarvis can control a single device or a whole room, for example "lights off in the living room", "make the bedroom warm white at 30 percent" or "movie mode" for a Hue scene. Philips Hue and any other brand work once they are added to Home Assistant.
+The Smart Home screen opens with a holographic house that draws itself in: each room from Home Assistant is a room in the house, and every light casts a glow in its real colour. Tap a light to switch it, or a room to switch all its lights. Below the house, devices are grouped by the rooms (areas) you set in Home Assistant, each with an All on / All off button. Tap a light to switch it, or its ◐ button for brightness, colour and warm/cool white. Jarvis can control a single device or a whole room, for example "lights off in the living room", "make the bedroom warm white at 30 percent" or "movie mode" for a Hue scene. Philips Hue and any other brand work once they are added to Home Assistant.
 
 ## Customise
 

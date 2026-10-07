@@ -3047,3 +3047,43 @@ body.hud-boot .hud-status { animation: hud-fade-in 400ms 200ms both; }
 .ha-swatches i { width: 14px; height: 14px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 8px var(--sw); flex: none; }
 .ha-swatches button.is-picked { border-color: var(--sw); }
 .ha-panel-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* Smart Home: holographic house */
+.ha-house-wrap { width: min(1080px, 100%); margin: 6px 0 38px; }
+.ha-house { display: block; width: 100%; height: auto; color: var(--accent); overflow: visible; font-family: inherit; }
+.ha-house .hh-gridline { fill: none; stroke: rgba(var(--accent-rgb), 0.07); stroke-width: 1; }
+.ha-house .hh-roof, .ha-house .hh-wall, .ha-house .hh-ground, .ha-house .hh-chimney { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), 0.7)); }
+.ha-house .hh-roof-inner { stroke-width: 1; opacity: 0.4; }
+.ha-house .hh-chimney { stroke-width: 1.5; }
+.ha-house .hh-ground { stroke-width: 1; opacity: 0.5; }
+.ha-house .hh-wall { stroke-width: 1.4; opacity: 0.75; transition: opacity 0.4s ease, stroke-width 0.4s ease; }
+.ha-house .hh-hit { fill: transparent; cursor: pointer; }
+.ha-house .hh-room:hover .hh-wall { opacity: 1; stroke-width: 2.4; }
+.ha-house .hh-room.is-lit .hh-wall { opacity: 1; }
+.ha-house .hh-pool { filter: url(#hhBlur); opacity: 0; transition: opacity 0.9s ease, fill 0.9s ease; pointer-events: none; animation: hh-breathe 5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.ha-house .hh-name { fill: #fff; font-size: 22px; letter-spacing: 0.2em; pointer-events: none; }
+.ha-house .hh-sub, .ha-house .hh-extra, .ha-house .hh-tag { fill: var(--accent); font-size: 14px; letter-spacing: 0.16em; opacity: 0.8; pointer-events: none; }
+.ha-house .hh-tag { opacity: 0.55; font-size: 13px; }
+.ha-house .hh-light { cursor: pointer; }
+.ha-house .hh-ring { fill: rgba(0, 0, 0, 0.5); stroke: rgba(var(--accent-rgb), 0.55); stroke-width: 1.5; stroke-dasharray: 4 4; transition: stroke 0.4s ease; transform-box: fill-box; transform-origin: center; }
+.ha-house .hh-core { fill: rgba(255, 255, 255, 0.18); transition: fill 0.4s ease; }
+.ha-house .hh-light.is-on .hh-ring { stroke: var(--glow); stroke-dasharray: none; animation: hh-spin 9s linear infinite; }
+.ha-house .hh-light.is-on .hh-core { fill: var(--glow); filter: drop-shadow(0 0 8px var(--glow)) drop-shadow(0 0 18px var(--glow)); }
+.ha-house .hh-light:hover .hh-ring { stroke: #fff; }
+.ha-house .hh-ripple { fill: none; stroke: var(--glow, var(--accent)); stroke-width: 2; opacity: 0; pointer-events: none; transform-box: fill-box; transform-origin: center; }
+.ha-house .hh-ripple.go { animation: hh-ripple 0.9s ease-out; }
+.ha-house .hh-scanner { color: var(--accent); pointer-events: none; animation: hh-scan 7s linear infinite; }
+.ha-house .hh-scanner line { stroke: var(--accent); stroke-width: 1.5; opacity: 0.8; filter: drop-shadow(0 0 6px var(--accent)); }
+/* First appearance: the roof and walls draw themselves, then rooms light up one by one */
+.ha-house.is-new .hh-roof, .ha-house.is-new .hh-ground, .ha-house.is-new .hh-chimney { stroke-dasharray: 100; animation: hh-draw 1.4s cubic-bezier(.6, .1, .2, 1) both; }
+.ha-house.is-new .hh-wall { stroke-dasharray: 100; animation: hh-draw 1.1s var(--d) cubic-bezier(.6, .1, .2, 1) both; }
+.ha-house.is-new .hh-name, .ha-house.is-new .hh-sub, .ha-house.is-new .hh-extra, .ha-house.is-new .hh-light { animation: hh-flicker 0.6s calc(var(--d) + 0.7s) both; }
+.ha-house.is-new .hh-grid { animation: hud-fade-in 1.2s 0.3s both; }
+.ha-house.is-new .hh-room > g:first-child { animation: hud-fade-in 1.2s calc(var(--d) + 0.9s) both; }
+@keyframes hh-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes hh-flicker { 0% { opacity: 0; } 30% { opacity: 1; } 45% { opacity: 0.2; } 60%, 100% { opacity: 1; } }
+@keyframes hh-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes hh-spin { to { transform: rotate(360deg); } }
+@keyframes hh-ripple { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(3.2); } }
+@keyframes hh-scan { from { transform: translateY(0); opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } to { transform: translateY(var(--scan-h)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ha-house * { animation: none !important; } }
