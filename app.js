@@ -361,6 +361,19 @@ async function connectAddOn(id){
 async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){homeAssistantEntities=[];renderHomeKit();renderHome();}renderConnections();renderSpotifyPage();}catch(error){setMessage(error.message,true);}}
 function formatSync(value){const date=new Date(value);return Number.isNaN(date.valueOf())?value:`Synced ${date.toLocaleString()}`;}
 
+// Brightness, colour and white temperature for a light.turn_on call, shared by the Smart Home screen and Jarvis.
+function lightOptions(domain,input){
+  if(domain!=="light"||input.action!=="turn_on")return {};
+  const o={};
+  if(input.brightness_pct)o.brightness_pct=Math.max(1,Math.min(100,Math.round(input.brightness_pct)));
+  let c=String(input.color||"").trim().toLowerCase();
+  const whites={"warm white":2400,warm:2400,"soft white":2700,white:4000,"neutral white":4000,"cool white":6000,cool:6000,daylight:6500};
+  if(whites[c]){input={...input,kelvin:whites[c]};c="";}
+  if(/^#?[0-9a-f]{6}$/.test(c)){const h=c.replace("#","");o.rgb_color=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));}
+  else if(c)o.color_name=c.replace(/[\s-]+/g,"");
+  else if(input.kelvin)o.color_temp_kelvin=Math.max(2000,Math.min(6500,Math.round(input.kelvin)));
+  return o;
+}
 function entityIsOn(e){return !["off","unavailable","unknown","closed","locked","idle","standby"].includes(String(e.state).toLowerCase());}
 function haValue(e){
   if(e.domain==="climate")return e.temperature!=null?`${Math.round(e.temperature)}°`:esc(e.state);
@@ -411,10 +424,48 @@ function renderHomeKit(){
   if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
-  const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain));
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
-  grid.innerHTML=sorted.map(e=>{const on=entityIsOn(e),act=interactive.has(e.domain);return `<button type="button" class="ha-tile ${on?"is-on":""}" ${act?`data-ha-toggle="${esc(e.id)}"`:"disabled"}><span>${esc(e.name)}</span><strong>${esc(haValue(e))}</strong></button>`;}).join("");
-  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",()=>toggleEntity(btn.dataset.haToggle)));
+  const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
+  const rooms=new Map();
+  sorted.forEach(e=>{const key=e.area||"Other";if(!rooms.has(key))rooms.set(key,{id:e.areaId,items:[]});rooms.get(key).items.push(e);});
+  const roomNames=[...rooms.keys()].sort((a,b)=>(a==="Other")-(b==="Other")||a.localeCompare(b));
+  const tile=e=>{const on=entityIsOn(e),act=interactive.has(e.domain),glow=e.domain==="light"&&on?lightGlow(e):"";
+    const adjust=e.domain==="light"&&e.canDim?`<span class="ha-adjust" role="button" tabindex="0" data-ha-adjust="${esc(e.id)}" aria-label="Adjust ${esc(e.name)}">◐</span>`:"";
+    return `<button type="button" class="ha-tile ${on?"is-on":""} ${glow?"has-glow":""}" ${glow?`style="--glow:${glow}"`:""} ${act?`data-ha-toggle="${esc(e.id)}"`:"disabled"}><span>${esc(shortName(e))}</span><strong>${esc(haValue(e))}</strong>${adjust}</button>`;};
+  const fresh=!grid.querySelector(".ha-room");
+  grid.innerHTML=roomNames.map(name=>{const room=rooms.get(name),lights=room.items.filter(e=>e.domain==="light"),anyOn=lights.some(entityIsOn);
+    const all=room.id&&lights.length?`<button type="button" class="ha-room-all ${anyOn?"is-on":""}" data-ha-room="${esc(room.id)}" data-on="${anyOn?"1":""}">${anyOn?"All off":"All on"}</button>`:"";
+    return `<section class="ha-room${fresh?" is-new":""}"><header class="ha-room-head"><h2>${esc(name)}</h2><span>${lights.length?`${lights.filter(entityIsOn).length}/${lights.length} lights on`:""}</span>${all}</header><div class="ha-room-grid">${room.items.map(tile).join("")}</div></section>`;}).join("");
+  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;toggleEntity(btn.dataset.haToggle);}));
+  grid.querySelectorAll("[data-ha-adjust]").forEach(el=>{const open=ev=>{ev.stopPropagation();openLightPanel(el.dataset.haAdjust);};el.addEventListener("click",open);el.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" ")open(ev);});});
+  grid.querySelectorAll("[data-ha-room]").forEach(btn=>btn.addEventListener("click",()=>callHomeAssistant(btn.dataset.on?"light.turn_off":"light.turn_on",{area_id:btn.dataset.haRoom})));
+}
+// "Living Room Lamp" reads as "Lamp" under the Living Room heading.
+function shortName(e){const a=(e.area||"").toLowerCase();return a&&e.name.toLowerCase().startsWith(`${a} `)&&e.name.length>a.length+1?e.name.slice(a.length+1):e.name;}
+function lightGlow(e){if(e.rgb)return `rgb(${e.rgb.join(",")})`;if(e.colorTemp)return e.colorTemp<3200?"rgb(255,190,120)":e.colorTemp>5000?"rgb(200,225,255)":"rgb(255,228,190)";return "var(--accent)";}
+async function callHomeAssistant(service,data){
+  try{await api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})});setTimeout(loadHomeAssistant,500);}
+  catch(error){setMessage(error.message,true);}
+}
+const LIGHT_SWATCHES=[["Warm",{kelvin:2400}],["Neutral",{kelvin:4000}],["Cool",{kelvin:6000}],["Red",{color:"red"}],["Orange",{color:"orange"}],["Gold",{color:"gold"}],["Green",{color:"lime"}],["Cyan",{color:"cyan"}],["Blue",{color:"blue"}],["Purple",{color:"purple"}],["Pink",{color:"hotpink"}]];
+function openLightPanel(id){
+  const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
+  let panel=$("haLightPanel");
+  if(!panel){panel=document.createElement("dialog");panel.id="haLightPanel";panel.className="ha-light-panel";document.body.appendChild(panel);panel.addEventListener("click",ev=>{if(ev.target===panel)panel.close();});}
+  const pct=entityIsOn(e)&&e.brightness!=null?Math.round(e.brightness/2.55):100;
+  const swatches=LIGHT_SWATCHES.filter(([,o])=>o.color?e.canColor:e.canTemp||e.canColor);
+  panel.innerHTML=`<p class="eyebrow">${esc(e.area||"Light")}</p><h2>${esc(e.name)}</h2>
+    <label class="ha-bright"><span>Brightness</span><input type="range" min="1" max="100" value="${pct}" id="haBright"><output id="haBrightOut">${pct}%</output></label>
+    ${swatches.length?`<div class="ha-swatches">${swatches.map(([name,o],i)=>`<button type="button" data-sw="${i}" style="--sw:${o.color||(o.kelvin<3200?"#ffbe78":o.kelvin>5000?"#c8e1ff":"#ffe4be")}" aria-label="${name}"><i></i>${name}</button>`).join("")}</div>`:""}
+    <div class="ha-panel-actions"><button type="button" class="ghost-button" id="haOff">Turn off</button><button type="button" class="store-action" id="haDone">Done</button></div>`;
+  const send=input=>callHomeAssistant("light.turn_on",{entity_id:e.id,...lightOptions("light",{action:"turn_on",...input})});
+  const range=panel.querySelector("#haBright"),out=panel.querySelector("#haBrightOut");
+  range.addEventListener("input",()=>{out.textContent=`${range.value}%`;});
+  range.addEventListener("change",()=>send({brightness_pct:Number(range.value)}));
+  panel.querySelectorAll("[data-sw]").forEach(b=>b.addEventListener("click",()=>{panel.querySelectorAll("[data-sw]").forEach(x=>x.classList.toggle("is-picked",x===b));send(swatches[Number(b.dataset.sw)][1]);}));
+  panel.querySelector("#haOff").addEventListener("click",()=>{callHomeAssistant("light.turn_off",{entity_id:e.id});panel.close();});
+  panel.querySelector("#haDone").addEventListener("click",()=>panel.close());
+  if(!panel.open)panel.showModal();
 }
 
 function openPhotoDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open("reflect-os-photos",1);request.onupgradeneeded=()=>request.result.createObjectStore("photos",{keyPath:"id"});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}

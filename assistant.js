@@ -193,8 +193,10 @@
     else { const tr = sampleData.track || {}; lines.push(`Music: ${tr.playing ? "playing" : "paused"} ${tr.title && tr.title !== "Nothing playing" ? `"${tr.title}" by ${tr.artist}` : "(nothing loaded)"}.`); }
     if (!connected("smartHome")) lines.push("Smart home: Home Assistant not connected.");
     else {
-      lines.push("Smart home devices (entity id | name | state):");
-      homeAssistantEntities.slice(0, 80).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
+      const rooms = [...new Map(homeAssistantEntities.filter((e) => e.areaId).map((e) => [e.areaId, e.area])).entries()];
+      lines.push(rooms.length ? `Rooms (area id = name): ${rooms.map(([id, name]) => `${id} = ${name}`).join(", ")}.` : "Rooms: none set up in Home Assistant.");
+      lines.push("Smart home devices (entity id | name | room | state):");
+      homeAssistantEntities.slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
     }
     const timers = loadTimers();
     lines.push(timers.length ? "Timers and reminders (id | kind | label | due):" : "Timers and reminders: none running.");
@@ -215,17 +217,25 @@
     }
     if (tool === "control_device") {
       if (!connected("smartHome")) throw new Error("Home Assistant is not connected.");
-      const entity = homeAssistantEntities.find((e) => e.id === input.entity_id);
-      if (!entity) throw new Error(`No device with id ${input.entity_id}.`);
-      const d = entity.domain;
+      let d, data, label;
+      if (input.entity_id) {
+        const entity = homeAssistantEntities.find((e) => e.id === input.entity_id);
+        if (!entity) throw new Error(`No device with id ${input.entity_id}.`);
+        d = entity.domain; data = { entity_id: entity.id }; label = entity.name;
+      } else if (input.area_id) {
+        const inRoom = homeAssistantEntities.filter((e) => e.areaId === input.area_id);
+        if (!inRoom.length) throw new Error(`No room with id ${input.area_id}.`);
+        d = input.domain || "light";
+        if (!inRoom.some((e) => e.domain === d)) throw new Error(`There is no ${d} in ${inRoom[0].area}.`);
+        data = { area_id: input.area_id }; label = `the ${inRoom[0].area} ${d === "light" ? "lights" : `${d} devices`}`;
+      } else throw new Error("Say which device or room.");
       const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature" }[input.action];
       if (!service) throw new Error(`Unknown action ${input.action}.`);
-      const data = { entity_id: entity.id };
-      if (d === "light" && input.action === "turn_on" && input.brightness_pct) data.brightness_pct = Math.max(1, Math.min(100, Math.round(input.brightness_pct)));
+      Object.assign(data, lightOptions(d, input));
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
       await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) });
       setTimeout(loadHomeAssistant, 700);
-      return `${service} sent to ${entity.name}.`;
+      return `${service} sent to ${label}.`;
     }
     if (tool === "music") {
       if (!connected("spotify")) throw new Error("Spotify is not connected. Connect it in Settings, Connections first.");

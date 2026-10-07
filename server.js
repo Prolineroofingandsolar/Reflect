@@ -196,6 +196,24 @@ async function refreshProvider(accountRecord, providerId) {
   return token;
 }
 
+// Rooms come from Home Assistant's areas. The REST API has no area list, so a template prints
+// "entity|area id|area name" lines. Older servers without area support just get no rooms.
+let haAreaCache = { key: "", at: 0, map: {} };
+async function homeAssistantAreas(config) {
+  if (haAreaCache.key === config.baseUrl && Date.now() - haAreaCache.at < 300000) return haAreaCache.map;
+  const template = "{% for s in states %}{% set a = area_id(s.entity_id) %}{% if a %}{{ s.entity_id }}|{{ a }}|{{ area_name(a) }}\n{% endif %}{% endfor %}";
+  const map = {};
+  try {
+    const response = await fetch(`${config.baseUrl}/api/template`, { method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ template }) });
+    if (response.ok) for (const line of (await response.text()).split("\n")) {
+      const [entity, id, name] = line.split("|");
+      if (entity && id) map[entity.trim()] = { id: id.trim(), name: (name || id).trim() };
+    }
+  } catch {}
+  haAreaCache = { key: config.baseUrl, at: Date.now(), map };
+  return map;
+}
+
 async function api(req, res, url) {
   if (url.pathname === "/api/session" && req.method === "GET") {
     const session = currentAccount(req);
@@ -307,10 +325,21 @@ async function api(req, res, url) {
       if (!response.ok) return json(res, response.status, { error: "Home Assistant sync failed." });
       const all = await response.json();
       const domains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "sensor", "binary_sensor"]);
-      const entities = (Array.isArray(all) ? all : []).filter((entity) => domains.has(String(entity.entity_id).split(".")[0])).map((entity) => ({
-        id: entity.entity_id, domain: String(entity.entity_id).split(".")[0], name: entity.attributes?.friendly_name || entity.entity_id,
-        state: entity.state, unit: entity.attributes?.unit_of_measurement || "", brightness: entity.attributes?.brightness ?? null, temperature: entity.attributes?.temperature ?? null
-      }));
+      const areas = await homeAssistantAreas(config);
+      const entities = (Array.isArray(all) ? all : []).filter((entity) => domains.has(String(entity.entity_id).split(".")[0])).map((entity) => {
+        const a = entity.attributes || {};
+        const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
+        return {
+          id: entity.entity_id, domain: String(entity.entity_id).split(".")[0], name: a.friendly_name || entity.entity_id,
+          state: entity.state, unit: a.unit_of_measurement || "", brightness: a.brightness ?? null, temperature: a.temperature ?? null,
+          areaId: areas[entity.entity_id]?.id || "", area: areas[entity.entity_id]?.name || "",
+          rgb: Array.isArray(a.rgb_color) ? a.rgb_color : null,
+          colorTemp: a.color_temp_kelvin ?? null,
+          canColor: modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m)),
+          canTemp: modes.includes("color_temp"),
+          canDim: modes.some((m) => m !== "onoff")
+        };
+      });
       return json(res, 200, { entities, syncedAt: new Date().toISOString() });
     } catch (error) { return json(res, 502, { error: error.message }); }
   }
@@ -562,7 +591,7 @@ Use your tools to act on the mirror: change screens, control smart-home devices,
 
 const assistantTools = [
   { name: "show_screen", description: "Switch the mirror to one of its screens.", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "settings"] } }, required: ["screen"], additionalProperties: false } },
-  { name: "control_device", description: "Control a Home Assistant device listed in the mirror context. Use turn_on/turn_off/toggle for lights, switches and fans (brightness_pct optionally sets light brightness), activate for scenes, lock/unlock for locks, open/close for covers, and set_temperature (with temperature) for climate.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, temperature: { type: "number" } }, required: ["entity_id", "action"], additionalProperties: false } },
+  { name: "control_device", description: "Control Home Assistant devices listed in the mirror context. Target one device with entity_id, or a whole room with area_id (all its lights by default, or the domain given). Use turn_on/turn_off/toggle for lights, switches and fans; with turn_on on lights, brightness_pct sets brightness, color sets a colour (a CSS colour name like red, blue, purple, orange) and kelvin sets white temperature (2200 warm, 4000 neutral, 6500 cool). Use activate for scenes (e.g. Hue scenes), lock/unlock for locks, open/close for covers and set_temperature (with temperature) for climate. Call it once per room or device; several calls in one turn are fine.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, area_id: { type: "string", description: "Room id from the context, e.g. living_room, to control the whole room" }, domain: { type: "string", enum: ["light", "switch", "fan", "cover"], description: "With area_id: which kind of device in the room. Defaults to light." }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, color: { type: "string" }, kelvin: { type: "integer", minimum: 2000, maximum: 6500 }, temperature: { type: "number" } }, required: ["action"], additionalProperties: false } },
   { name: "music", description: "Control Spotify on the mirror. play resumes, pause pauses, next/previous skip, play_search finds and plays a song, artist or album from query.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["play", "pause", "next", "previous", "play_search"] }, query: { type: "string" } }, required: ["action"], additionalProperties: false } },
   { name: "add_task", description: "Add a task to the mirror's task list.", input_schema: { type: "object", properties: { title: { type: "string" }, category: { type: "string", enum: ["Home", "Work", "Health", "Personal"] }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" } }, required: ["title"], additionalProperties: false } },
   { name: "complete_task", description: "Mark a task from the context as done.", input_schema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"], additionalProperties: false } },
