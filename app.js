@@ -398,7 +398,7 @@ async function connectHomeAssistant(event){
 }
 async function loadHomeAssistant(){
   if(!connected("smartHome")){renderHomeKit();closeHomeStream();return;}
-  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();openHomeStream();}
+  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();openHomeStream();homeListeners.forEach(fn=>{try{fn(null);}catch{}});}
   catch(error){$("homekitStatus").textContent=error.message;}
 }
 // Live device changes from Home Assistant, pushed through the mirror's server. Changes are batched into one
@@ -436,14 +436,12 @@ function renderHomeKit(){
   const status=$("homekitStatus"),connectBtn=$("homekitConnect");
   if(connectBtn){connectBtn.hidden=false;connectBtn.textContent=connected("smartHome")?"Disconnect":"Connect Home Assistant";}
   if(!connected("smartHome")){
-    if($("homekitHouse"))$("homekitHouse").innerHTML="";
     if(status)status.textContent=addOnInstalled("smartHome")?"Connect your Home Assistant server":"Install Smart Home from Add-ons";
     grid.innerHTML=`<div class="homekit-empty"><p>Connect Home Assistant to control lights, climate, locks and scenes from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Connect Home Assistant</button></div>`;
     $("homekitConnectCta")?.addEventListener("click",()=>connectAddOn("smartHome"));
     return;
   }
   if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
-  window.renderHouse?.();
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
@@ -465,6 +463,20 @@ function renderHomeKit(){
 // "Living Room Lamp" reads as "Lamp" under the Living Room heading.
 function shortName(e){const a=(e.area||"").toLowerCase();return a&&e.name.toLowerCase().startsWith(`${a} `)&&e.name.length>a.length+1?e.name.slice(a.length+1):e.name;}
 
+// What the 3D House screen (smarthome/) uses from the rest of the mirror.
+window.ReflectBridge={
+  entities:()=>homeAssistantEntities,
+  connected:()=>connected("smartHome"),
+  live:()=>homeStreamLive,
+  onChange:onHomeChange,
+  call:(service,data)=>api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})}),
+  lightOptions,
+  weather:()=>({data:weatherData,place:profile.weather.place,label:weatherLabel}),
+  person:()=>profile.personName||"",
+  showView:(name)=>showView(name,false),
+  connect:()=>connectConnection("smartHome"),
+  reload:loadHomeAssistant
+};
 function lightGlow(e){if(e.rgb)return `rgb(${e.rgb.join(",")})`;if(e.colorTemp)return e.colorTemp<3200?"rgb(255,190,120)":e.colorTemp>5000?"rgb(200,225,255)":"rgb(255,228,190)";return "var(--accent)";}
 async function callHomeAssistant(service,data){
   try{await api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})});setTimeout(loadHomeAssistant,500);}
@@ -691,7 +703,7 @@ async function playSpotifyContext(uri){
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("settings");openSettingsPage("connections");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit"){loadHomeAssistant();window.replayHouse?.();}if(reveal)showNav();}
+function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 

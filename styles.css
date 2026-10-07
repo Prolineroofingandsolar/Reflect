@@ -3048,7 +3048,6 @@ body.hud-boot .hud-status { animation: hud-fade-in 400ms 200ms both; }
 .ha-swatches button.is-picked { border-color: var(--sw); }
 .ha-panel-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
-/* Smart Home: holographic house (drawn by house.js) */
-.ha-house-wrap { width: min(1080px, 100%); margin: 0 0 30px; }
-.ha-house { display: block; width: 100%; height: clamp(340px, 60vh, 680px); cursor: grab; touch-action: pan-y; }
-.ha-house:active { cursor: grabbing; }
+/* 3D House screen: the view is a full-bleed black stage; smarthome/dist/smarthome.css styles its contents */
+.house3d-view { position: fixed; inset: 0; padding: 0; background: #000; }
+.house3d-root { position: absolute; inset: 0; }

@@ -9,8 +9,9 @@
     if (location.protocol === "file:") location.replace("http://127.0.0.1:4173/index.html");
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='black'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%2356d8ff' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=0.9.24">
-  <link rel="stylesheet" href="assistant.css?v=0.9.24">
+  <link rel="stylesheet" href="styles.css?v=0.10.0">
+  <link rel="stylesheet" href="assistant.css?v=0.10.0">
+  <link rel="stylesheet" href="smarthome/dist/smarthome.css?v=0.10.0">
 </head>
 <body>
 <main class="reflect-os" aria-live="polite">
@@ -20,6 +21,7 @@
     <button class="nav-item" data-view="tasks">Tasks</button>
     <button class="nav-item" data-view="music">Music</button>
     <button class="nav-item" data-view="weather">Weather</button>
+    <button class="nav-item" data-view="house3d">House</button>
     <button class="nav-item" data-view="homekit">Smart Home</button>
     <button class="nav-item" data-view="settings">Settings</button>
   </nav>
@@ -216,6 +218,10 @@
     <footer class="cal-foot" id="weatherFoot"></footer>
   </section>
 
+  <section class="view house3d-view" id="view-house3d" aria-label="3D House">
+    <div id="house3dRoot" class="house3d-root"></div>
+  </section>
+
   <section class="view page-view" id="view-homekit" aria-label="Smart Home">
     <header class="page-header">
       <div>
@@ -224,7 +230,6 @@
       </div>
       <button class="ghost-button" id="homekitConnect" type="button">Connect Home Assistant</button>
     </header>
-    <div class="ha-house-wrap" id="homekitHouse"></div>
     <div class="homekit-grid" id="homekitGrid"></div>
   </section>
 
@@ -238,6 +243,7 @@
         <button class="side-item" data-view="tasks"><span class="si-ic">✓</span>Tasks</button>
         <button class="side-item" data-view="music"><span class="si-ic">♪</span>Music</button>
         <button class="side-item" data-view="weather"><span class="si-ic">☁</span>Weather</button>
+        <button class="side-item" data-view="house3d"><span class="si-ic">◈</span>House</button>
         <button class="side-item" data-view="homekit"><span class="si-ic">⌂</span>Smart Home</button>
       </nav>
       <button class="side-item is-active" data-view="settings"><span class="si-ic">⚙</span>Settings</button>
@@ -338,7 +344,7 @@
           <label class="settings-field"><span>Greeting</span><input id="greetingPrefix"></label>
           <label class="settings-field"><span>Clock format</span><select id="clockFormat"><option value="24">24 hour</option><option value="12">12 hour</option></select></label>
           <label class="settings-field"><span>Accent colour</span><input id="accentColor" type="color"></label>
-          <label class="settings-field"><span>Default screen</span><select id="defaultView"><option value="home">Home</option><option value="calendar">Calendar</option><option value="tasks">Tasks</option><option value="music">Music</option><option value="weather">Weather</option><option value="homekit">Smart Home</option></select></label>
+          <label class="settings-field"><span>Default screen</span><select id="defaultView"><option value="home">Home</option><option value="calendar">Calendar</option><option value="tasks">Tasks</option><option value="music">Music</option><option value="weather">Weather</option><option value="house3d">3D House</option><option value="homekit">Smart Home</option></select></label>
           <label class="settings-field"><span>Navigation timeout</span><select id="navTimeout"><option value="2400">2.4 seconds</option><option value="3600">3.6 seconds</option><option value="5200">5.2 seconds</option><option value="8000">8 seconds</option></select></label>
         </div>
       </section>
@@ -455,9 +461,9 @@
     </form>
   </dialog>
 </main>
-<script src="app.js?v=0.9.24"></script>
-<script src="hud-motion.js?v=0.9.24"></script>
-<script src="house.js?v=0.9.24"></script>
-<script src="assistant.js?v=0.9.24"></script>
+<script src="app.js?v=0.10.0"></script>
+<script src="hud-motion.js?v=0.10.0"></script>
+<script src="assistant.js?v=0.10.0"></script>
+<script type="module" src="smarthome/dist/smarthome.js?v=0.10.0"></script>
 </body>
 </html>
