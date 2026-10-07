@@ -1,0 +1,58 @@
+{
+  "_help": "Links Home Assistant to the 3D house. Each room key matches a Room_<key> group in the model. 'areas' lists the Home Assistant area ids (or names) that belong to that room; rooms whose name matches an area are linked automatically, so you only need to add areas that are named differently. 'devices' pins an entity to a device spot in the model (e.g. bedside_left); anything not pinned is placed automatically by its name. Scenes run the Home Assistant scene or script named in 'entity' if you have one, otherwise the listed actions.",
+  "model": "models/house.glb",
+  "rooms": {
+    "living_room": { "areas": ["lounge", "sitting_room", "front_room"], "devices": {} },
+    "hallway": { "areas": ["hall", "entrance", "landing"], "devices": {} },
+    "gym": { "areas": ["home_gym"], "devices": {} },
+    "kitchen": { "areas": ["kitchen_diner", "dining_room"], "devices": {} },
+    "utility": { "areas": ["utility_room", "laundry"], "devices": {} },
+    "garage": { "areas": [], "devices": {} },
+    "bedroom": { "areas": ["master_bedroom", "main_bedroom"], "devices": {} },
+    "ensuite": { "areas": ["en_suite", "en-suite"], "devices": {} },
+    "bathroom": { "areas": ["family_bathroom"], "devices": {} },
+    "guest_room": { "areas": ["guest_bedroom", "spare_room", "spare_bedroom"], "devices": {} },
+    "office": { "areas": ["study", "home_office"], "devices": {} },
+    "garden": { "areas": ["back_garden", "outside", "outdoor", "patio", "driveway"], "devices": {} }
+  },
+  "cameras": [
+    { "label": "Front Door", "match": ["front_door", "doorbell", "front"] },
+    { "label": "Driveway", "match": ["driveway", "drive"] },
+    { "label": "Garden", "match": ["garden", "back", "rear"] },
+    { "label": "Side", "match": ["side", "alley", "passage"] }
+  ],
+  "scenes": [
+    { "key": "good_morning", "label": "Good Morning", "entity": ["scene.good_morning", "script.good_morning"],
+      "actions": [
+        { "service": "light.turn_on", "rooms": ["bedroom", "kitchen", "hallway"], "data": { "brightness_pct": 70, "color_temp_kelvin": 3500 } },
+        { "service": "cover.open_cover", "rooms": ["*"] }
+      ] },
+    { "key": "relax", "label": "Relax", "entity": ["scene.relax", "script.relax"],
+      "actions": [ { "service": "light.turn_on", "rooms": ["living_room"], "data": { "brightness_pct": 40, "color_temp_kelvin": 2400 } } ] },
+    { "key": "movie_night", "label": "Movie Night", "entity": ["scene.movie_night", "script.movie_night"],
+      "actions": [
+        { "service": "light.turn_on", "rooms": ["living_room"], "data": { "brightness_pct": 10, "color_temp_kelvin": 2200 } },
+        { "service": "light.turn_off", "rooms": ["kitchen", "hallway"] },
+        { "service": "cover.close_cover", "rooms": ["living_room"] }
+      ] },
+    { "key": "goodnight", "label": "Goodnight", "entity": ["scene.goodnight", "script.goodnight"],
+      "actions": [
+        { "service": "light.turn_off", "rooms": ["*"], "except": ["bedroom"] },
+        { "service": "light.turn_on", "rooms": ["bedroom"], "data": { "brightness_pct": 15, "color_temp_kelvin": 2200 } },
+        { "service": "lock.lock", "domain": "lock" },
+        { "service": "cover.close_cover", "rooms": ["*"], "except": ["garage"] }
+      ] },
+    { "key": "away", "label": "Away", "entity": ["scene.away", "script.away", "script.leaving"],
+      "actions": [
+        { "service": "light.turn_off", "rooms": ["*"] },
+        { "service": "lock.lock", "domain": "lock" },
+        { "service": "alarm_control_panel.alarm_arm_away", "domain": "alarm_control_panel" }
+      ] },
+    { "key": "party", "label": "Party", "entity": ["scene.party", "script.party"],
+      "actions": [
+        { "service": "light.turn_on", "rooms": ["living_room", "kitchen", "garden"], "data": { "brightness_pct": 90, "color_name": "magenta" } }
+      ] },
+    { "key": "all_off", "label": "All Off", "entity": [],
+      "actions": [ { "service": "light.turn_off", "rooms": ["*"] }, { "service": "switch.turn_off", "rooms": ["*"], "except": ["utility"] } ] }
+  ]
+}

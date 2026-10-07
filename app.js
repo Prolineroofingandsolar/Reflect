@@ -358,9 +358,22 @@ async function connectAddOn(id){
   if(id==="smartHome"){$("haDialogError").textContent="";$("haDialog").showModal();return;}
   try{const response=await fetch(`/api/integrations/${id}/connect`,{redirect:"manual"});if(response.type==="opaqueredirect"||response.status===0){location.href=`/api/integrations/${id}/connect`;return;}const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Connection could not start.");location.href=response.url;}catch(error){profile.addOns[id].error=error.message;saveProfile();setMessage(error.message,true);renderConnections();}
 }
-async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){homeAssistantEntities=[];renderHomeKit();renderHome();}renderConnections();renderSpotifyPage();}catch(error){setMessage(error.message,true);}}
+async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){closeHomeStream();homeAssistantEntities=[];renderHomeKit();renderHome();}renderConnections();renderSpotifyPage();}catch(error){setMessage(error.message,true);}}
 function formatSync(value){const date=new Date(value);return Number.isNaN(date.valueOf())?value:`Synced ${date.toLocaleString()}`;}
 
+// Brightness, colour and white temperature for a light.turn_on call, shared by the Smart Home screen and Jarvis.
+function lightOptions(domain,input){
+  if(domain!=="light"||input.action!=="turn_on")return {};
+  const o={};
+  if(input.brightness_pct)o.brightness_pct=Math.max(1,Math.min(100,Math.round(input.brightness_pct)));
+  let c=String(input.color||"").trim().toLowerCase();
+  const whites={"warm white":2400,warm:2400,"soft white":2700,white:4000,"neutral white":4000,"cool white":6000,cool:6000,daylight:6500};
+  if(whites[c]){input={...input,kelvin:whites[c]};c="";}
+  if(/^#?[0-9a-f]{6}$/.test(c)){const h=c.replace("#","");o.rgb_color=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));}
+  else if(c)o.color_name=c.replace(/[\s-]+/g,"");
+  else if(input.kelvin)o.color_temp_kelvin=Math.max(2000,Math.min(6500,Math.round(input.kelvin)));
+  return o;
+}
 function entityIsOn(e){return !["off","unavailable","unknown","closed","locked","idle","standby"].includes(String(e.state).toLowerCase());}
 function haValue(e){
   if(e.domain==="climate")return e.temperature!=null?`${Math.round(e.temperature)}°`:esc(e.state);
@@ -384,9 +397,29 @@ async function connectHomeAssistant(event){
   }catch(error){$("haDialogError").textContent=error.message;}
 }
 async function loadHomeAssistant(){
-  if(!connected("smartHome")){renderHomeKit();return;}
-  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();}
+  if(!connected("smartHome")){renderHomeKit();closeHomeStream();return;}
+  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();openHomeStream();homeListeners.forEach(fn=>{try{fn(null);}catch{}});}
   catch(error){$("homekitStatus").textContent=error.message;}
+}
+// Live device changes from Home Assistant, pushed through the mirror's server. Changes are batched into one
+// redraw per frame; listeners (the 3D house) hear about each changed device.
+let homeStream=null,homeStreamQueue=new Map(),homeStreamLive=false;
+const homeListeners=new Set();
+function onHomeChange(fn){homeListeners.add(fn);return()=>homeListeners.delete(fn);}
+function openHomeStream(){
+  if(homeStream||typeof EventSource==="undefined")return;
+  homeStream=new EventSource("/api/homeassistant/stream");
+  homeStream.addEventListener("status",ev=>{try{homeStreamLive=Boolean(JSON.parse(ev.data).live);}catch{}});
+  homeStream.addEventListener("entity",ev=>{let e;try{e=JSON.parse(ev.data);}catch{return;}const first=!homeStreamQueue.size;homeStreamQueue.set(e.id,e);if(first)requestAnimationFrame(flushHomeStream);});
+  homeStream.addEventListener("removed",ev=>{try{const {id}=JSON.parse(ev.data);homeAssistantEntities=homeAssistantEntities.filter(e=>e.id!==id);renderHomeKit();}catch{}});
+  homeStream.onerror=()=>{homeStreamLive=false;};
+}
+function closeHomeStream(){homeStream?.close();homeStream=null;homeStreamLive=false;}
+function flushHomeStream(){
+  const changed=[...homeStreamQueue.values()];homeStreamQueue.clear();
+  changed.forEach(e=>{const i=homeAssistantEntities.findIndex(x=>x.id===e.id);if(i>=0)homeAssistantEntities[i]=e;else homeAssistantEntities.push(e);});
+  renderHomeKit();renderHome();
+  homeListeners.forEach(fn=>{try{fn(changed);}catch(error){console.error(error);}});
 }
 async function toggleEntity(id){
   const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
@@ -411,10 +444,63 @@ function renderHomeKit(){
   if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
-  const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain));
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
-  grid.innerHTML=sorted.map(e=>{const on=entityIsOn(e),act=interactive.has(e.domain);return `<button type="button" class="ha-tile ${on?"is-on":""}" ${act?`data-ha-toggle="${esc(e.id)}"`:"disabled"}><span>${esc(e.name)}</span><strong>${esc(haValue(e))}</strong></button>`;}).join("");
-  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",()=>toggleEntity(btn.dataset.haToggle)));
+  const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
+  const rooms=new Map();
+  sorted.forEach(e=>{const key=e.area||"Other";if(!rooms.has(key))rooms.set(key,{id:e.areaId,items:[]});rooms.get(key).items.push(e);});
+  const roomNames=[...rooms.keys()].sort((a,b)=>(a==="Other")-(b==="Other")||a.localeCompare(b));
+  const tile=e=>{const on=entityIsOn(e),act=interactive.has(e.domain),glow=e.domain==="light"&&on?lightGlow(e):"";
+    const adjust=e.domain==="light"&&e.canDim?`<span class="ha-adjust" role="button" tabindex="0" data-ha-adjust="${esc(e.id)}" aria-label="Adjust ${esc(e.name)}">◐</span>`:"";
+    return `<button type="button" class="ha-tile ${on?"is-on":""} ${glow?"has-glow":""}" ${glow?`style="--glow:${glow}"`:""} ${act?`data-ha-toggle="${esc(e.id)}"`:"disabled"}><span>${esc(shortName(e))}</span><strong>${esc(haValue(e))}</strong>${adjust}</button>`;};
+  const fresh=!grid.querySelector(".ha-room");
+  grid.innerHTML=roomNames.map(name=>{const room=rooms.get(name),lights=room.items.filter(e=>e.domain==="light"),anyOn=lights.some(entityIsOn);
+    const all=room.id&&lights.length?`<button type="button" class="ha-room-all ${anyOn?"is-on":""}" data-ha-room="${esc(room.id)}" data-on="${anyOn?"1":""}">${anyOn?"All off":"All on"}</button>`:"";
+    return `<section class="ha-room${fresh?" is-new":""}"><header class="ha-room-head"><h2>${esc(name)}</h2><span>${lights.length?`${lights.filter(entityIsOn).length}/${lights.length} lights on`:""}</span>${all}</header><div class="ha-room-grid">${room.items.map(tile).join("")}</div></section>`;}).join("");
+  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;toggleEntity(btn.dataset.haToggle);}));
+  grid.querySelectorAll("[data-ha-adjust]").forEach(el=>{const open=ev=>{ev.stopPropagation();openLightPanel(el.dataset.haAdjust);};el.addEventListener("click",open);el.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" ")open(ev);});});
+  grid.querySelectorAll("[data-ha-room]").forEach(btn=>btn.addEventListener("click",()=>callHomeAssistant(btn.dataset.on?"light.turn_off":"light.turn_on",{area_id:btn.dataset.haRoom})));
+}
+// "Living Room Lamp" reads as "Lamp" under the Living Room heading.
+function shortName(e){const a=(e.area||"").toLowerCase();return a&&e.name.toLowerCase().startsWith(`${a} `)&&e.name.length>a.length+1?e.name.slice(a.length+1):e.name;}
+
+// What the 3D House screen (smarthome/) uses from the rest of the mirror.
+window.ReflectBridge={
+  entities:()=>homeAssistantEntities,
+  connected:()=>connected("smartHome"),
+  live:()=>homeStreamLive,
+  onChange:onHomeChange,
+  call:(service,data)=>api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})}),
+  lightOptions,
+  weather:()=>({data:weatherData,place:profile.weather.place,label:weatherLabel}),
+  person:()=>profile.personName||"",
+  showView:(name)=>showView(name,false),
+  connect:()=>connectConnection("smartHome"),
+  reload:loadHomeAssistant
+};
+function lightGlow(e){if(e.rgb)return `rgb(${e.rgb.join(",")})`;if(e.colorTemp)return e.colorTemp<3200?"rgb(255,190,120)":e.colorTemp>5000?"rgb(200,225,255)":"rgb(255,228,190)";return "var(--accent)";}
+async function callHomeAssistant(service,data){
+  try{await api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})});setTimeout(loadHomeAssistant,500);}
+  catch(error){setMessage(error.message,true);}
+}
+const LIGHT_SWATCHES=[["Warm",{kelvin:2400}],["Neutral",{kelvin:4000}],["Cool",{kelvin:6000}],["Red",{color:"red"}],["Orange",{color:"orange"}],["Gold",{color:"gold"}],["Green",{color:"lime"}],["Cyan",{color:"cyan"}],["Blue",{color:"blue"}],["Purple",{color:"purple"}],["Pink",{color:"hotpink"}]];
+function openLightPanel(id){
+  const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
+  let panel=$("haLightPanel");
+  if(!panel){panel=document.createElement("dialog");panel.id="haLightPanel";panel.className="ha-light-panel";document.body.appendChild(panel);panel.addEventListener("click",ev=>{if(ev.target===panel)panel.close();});}
+  const pct=entityIsOn(e)&&e.brightness!=null?Math.round(e.brightness/2.55):100;
+  const swatches=LIGHT_SWATCHES.filter(([,o])=>o.color?e.canColor:e.canTemp||e.canColor);
+  panel.innerHTML=`<p class="eyebrow">${esc(e.area||"Light")}</p><h2>${esc(e.name)}</h2>
+    <label class="ha-bright"><span>Brightness</span><input type="range" min="1" max="100" value="${pct}" id="haBright"><output id="haBrightOut">${pct}%</output></label>
+    ${swatches.length?`<div class="ha-swatches">${swatches.map(([name,o],i)=>`<button type="button" data-sw="${i}" style="--sw:${o.color||(o.kelvin<3200?"#ffbe78":o.kelvin>5000?"#c8e1ff":"#ffe4be")}" aria-label="${name}"><i></i>${name}</button>`).join("")}</div>`:""}
+    <div class="ha-panel-actions"><button type="button" class="ghost-button" id="haOff">Turn off</button><button type="button" class="store-action" id="haDone">Done</button></div>`;
+  const send=input=>callHomeAssistant("light.turn_on",{entity_id:e.id,...lightOptions("light",{action:"turn_on",...input})});
+  const range=panel.querySelector("#haBright"),out=panel.querySelector("#haBrightOut");
+  range.addEventListener("input",()=>{out.textContent=`${range.value}%`;});
+  range.addEventListener("change",()=>send({brightness_pct:Number(range.value)}));
+  panel.querySelectorAll("[data-sw]").forEach(b=>b.addEventListener("click",()=>{panel.querySelectorAll("[data-sw]").forEach(x=>x.classList.toggle("is-picked",x===b));send(swatches[Number(b.dataset.sw)][1]);}));
+  panel.querySelector("#haOff").addEventListener("click",()=>{callHomeAssistant("light.turn_off",{entity_id:e.id});panel.close();});
+  panel.querySelector("#haDone").addEventListener("click",()=>panel.close());
+  if(!panel.open)panel.showModal();
 }
 
 function openPhotoDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open("reflect-os-photos",1);request.onupgradeneeded=()=>request.result.createObjectStore("photos",{keyPath:"id"});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
@@ -617,7 +703,7 @@ async function playSpotifyContext(uri){
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("settings");openSettingsPage("connections");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();if(reveal)showNav();}
+function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -739,5 +825,5 @@ $("setupNext")?.addEventListener("click",setupAdvance);
 $("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
 $("setupSkip")?.addEventListener("click",completeSetup);
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);watchForUpdates();setInterval(watchForUpdates,120000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(()=>{if(!homeStreamLive)loadHomeAssistant();},30000);watchForUpdates();setInterval(watchForUpdates,120000);}
 boot();

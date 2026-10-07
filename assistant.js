@@ -44,8 +44,11 @@
   const name = () => A.status?.name || "Jarvis";
   const stateText = { idle: "Standing by", listening: "Listening", thinking: "Thinking", speaking: "", error: "" };
 
+  // The 3D House screen draws its own voice states (waveform, pulse, words) from these events.
+  const emit = (detail) => window.dispatchEvent(new CustomEvent("reflect:assistant", { detail }));
   function setState(state) {
     A.state = state;
+    emit(state === "listening" ? { state, heard: "", reply: "", error: "" } : state === "thinking" ? { state, reply: "", error: "" } : { state });
     if (state === "idle") unduckMusic(); else duckMusic();
     root.dataset.state = state;
     const label = stateText[state] ?? "";
@@ -92,11 +95,12 @@
     clearTimeout(A.closeTimer);
     A.closeTimer = setTimeout(() => { if (!A.busy && A.state !== "speaking" && A.state !== "listening") closeStage(); }, ms);
   }
-  function showHeard(text) { HUD.decode(heardEl, text ? `“${text}”` : "", { cps: 160, scramble: 60, caret: false }); }
+  function showHeard(text) { emit({ heard: text || "" }); HUD.decode(heardEl, text ? `“${text}”` : "", { cps: 160, scramble: 60, caret: false }); }
   // Replies decode onto the glass: each letter flickers through HUD glyphs, then locks in with a flash.
   function showReply(text) {
     text = String(text || "");
     srEl.textContent = text;
+    emit({ reply: text });
     HUD.decode(replyEl, text, { cps: Math.max(70, Math.min(140, text.length / 2)), scramble: 120 });
   }
   // Adds a sentence to the reply as it arrives; each one decodes onto the glass on its own.
@@ -105,6 +109,7 @@
     if (replyEl.childNodes.length) replyEl.append(" ");
     replyEl.append(part);
     srEl.textContent = `${srEl.textContent} ${text}`.trim();
+    emit({ reply: srEl.textContent });
     HUD.decode(part, text, { cps: Math.max(70, Math.min(140, text.length / 2)), scramble: 120 });
   }
   // A short log of what Jarvis just did ("Lights on", "Task added"), shown under the reply.
@@ -193,9 +198,12 @@
     else { const tr = sampleData.track || {}; lines.push(`Music: ${tr.playing ? "playing" : "paused"} ${tr.title && tr.title !== "Nothing playing" ? `"${tr.title}" by ${tr.artist}` : "(nothing loaded)"}.`); }
     if (!connected("smartHome")) lines.push("Smart home: Home Assistant not connected.");
     else {
-      lines.push("Smart home devices (entity id | name | state):");
-      homeAssistantEntities.slice(0, 80).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
+      const rooms = [...new Map(homeAssistantEntities.filter((e) => e.areaId).map((e) => [e.areaId, e.area])).entries()];
+      lines.push(rooms.length ? `Rooms (area id = name): ${rooms.map(([id, name]) => `${id} = ${name}`).join(", ")}.` : "Rooms: none set up in Home Assistant.");
+      lines.push("Smart home devices (entity id | name | room | state):");
+      homeAssistantEntities.slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
     }
+    if (connected("smartHome")) { try { lines.push(...(window.ReflectHome3D?.describe() || [])); } catch {} }
     const timers = loadTimers();
     lines.push(timers.length ? "Timers and reminders (id | kind | label | due):" : "Timers and reminders: none running.");
     timers.forEach((t) => lines.push(`- ${t.id} | ${t.kind} | ${t.label} | ${new Date(t.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", second: t.kind === "timer" ? "2-digit" : undefined })}`));
@@ -206,26 +214,56 @@
   }
 
   // ---------- Tools ----------
+  // Opens the 3D House screen and waits (briefly) for the house to load before Jarvis drives it.
+  async function house3d() {
+    if (!connected("smartHome")) throw new Error("Home Assistant is not connected.");
+    const H = window.ReflectHome3D;
+    if (!H) throw new Error("The 3D house isn't available.");
+    showView("house3d", false);
+    H.ensure?.();
+    for (let i = 0; i < 50 && !H.describe().length; i++) await new Promise((r) => setTimeout(r, 100));
+    if (!H.describe().length) throw new Error("The 3D house is still loading.");
+    return H;
+  }
   async function runTool(tool, input) {
+    if (tool === "show_room" || tool === "show_house" || tool === "show_camera" || tool === "run_scene") {
+      const house = await house3d();
+      if (tool === "show_room") return `Showing the ${house.showRoom(input.room)}.`;
+      if (tool === "show_house") {
+        if (input.floor === "downstairs" || input.floor === "upstairs") { house.showFloor(input.floor); return `Showing ${input.floor}.`; }
+        house.showHouse(); return "Showing the whole house.";
+      }
+      if (tool === "show_camera") return `Showing the ${house.showCamera(input.camera)} camera.`;
+      return `${await house.runScene(input.scene)} scene running.`;
+    }
     if (tool === "show_screen") {
-      const view = input.screen === "smart_home" ? "homekit" : input.screen;
+      const view = input.screen === "smart_home" ? "homekit" : input.screen === "house" ? "house3d" : input.screen;
       if (!document.getElementById(`view-${view}`)) throw new Error(`There is no ${input.screen} screen.`);
       showView(view, false);
       return `Now showing ${input.screen}.`;
     }
     if (tool === "control_device") {
       if (!connected("smartHome")) throw new Error("Home Assistant is not connected.");
-      const entity = homeAssistantEntities.find((e) => e.id === input.entity_id);
-      if (!entity) throw new Error(`No device with id ${input.entity_id}.`);
-      const d = entity.domain;
+      let d, data, label;
+      if (input.entity_id) {
+        const entity = homeAssistantEntities.find((e) => e.id === input.entity_id);
+        if (!entity) throw new Error(`No device with id ${input.entity_id}.`);
+        d = entity.domain; data = { entity_id: entity.id }; label = entity.name;
+      } else if (input.area_id) {
+        const inRoom = homeAssistantEntities.filter((e) => e.areaId === input.area_id);
+        if (!inRoom.length) throw new Error(`No room with id ${input.area_id}.`);
+        d = input.domain || "light";
+        if (!inRoom.some((e) => e.domain === d)) throw new Error(`There is no ${d} in ${inRoom[0].area}.`);
+        data = { area_id: input.area_id }; label = `the ${inRoom[0].area} ${d === "light" ? "lights" : `${d} devices`}`;
+      } else throw new Error("Say which device or room.");
       const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature" }[input.action];
       if (!service) throw new Error(`Unknown action ${input.action}.`);
-      const data = { entity_id: entity.id };
-      if (d === "light" && input.action === "turn_on" && input.brightness_pct) data.brightness_pct = Math.max(1, Math.min(100, Math.round(input.brightness_pct)));
+      Object.assign(data, lightOptions(d, input));
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
       await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) });
+      window.dispatchEvent(new CustomEvent("reflect:home-action", { detail: { entityIds: data.entity_id ? [data.entity_id] : [], areaIds: data.area_id ? [data.area_id] : [] } }));
       setTimeout(loadHomeAssistant, 700);
-      return `${service} sent to ${entity.name}.`;
+      return `${service} sent to ${label}.`;
     }
     if (tool === "music") {
       if (!connected("spotify")) throw new Error("Spotify is not connected. Connect it in Settings, Connections first.");
@@ -473,7 +511,7 @@
         if (result.stop_reason !== "tool_use" || !uses.length) { reply = said; break; }
         const results = await Promise.all(uses.map(async (use) => {
           try { const done = String(await runTool(use.name, use.input || {})); logAction(done); return { type: "tool_result", tool_use_id: use.id, content: done }; }
-          catch (error) { logAction(error.message, true); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
+          catch (error) { logAction(error.message, true); emit({ error: error.message }); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
         }));
         A.conversation.push({ role: "user", content: results });
       }
@@ -947,6 +985,7 @@
       A.recording = false;
       setState("idle");
       showReply(error.message);
+      emit({ error: error.message });
       closeSoon(4000);
     }
   }

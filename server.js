@@ -196,6 +196,74 @@ async function refreshProvider(accountRecord, providerId) {
   return token;
 }
 
+// The devices the mirror shows, and the parts of each one it needs, in one compact shape.
+const haDomains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "script", "sensor", "binary_sensor", "media_player", "camera", "alarm_control_panel"]);
+function haEntity(entity, areas) {
+  const domain = String(entity?.entity_id || "").split(".")[0];
+  if (!haDomains.has(domain)) return null;
+  const a = entity.attributes || {};
+  const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
+  return {
+    id: entity.entity_id, domain, name: a.friendly_name || entity.entity_id, state: entity.state,
+    unit: a.unit_of_measurement || "", deviceClass: a.device_class || "",
+    brightness: a.brightness ?? null, temperature: a.temperature ?? null,
+    currentTemperature: a.current_temperature ?? null, hvacAction: a.hvac_action || "",
+    position: a.current_position ?? null,
+    media: domain === "media_player" ? { title: a.media_title || "", artist: a.media_artist || "", volume: a.volume_level ?? null, source: a.source || "" } : null,
+    areaId: areas[entity.entity_id]?.id || "", area: areas[entity.entity_id]?.name || "",
+    rgb: Array.isArray(a.rgb_color) ? a.rgb_color : null,
+    colorTemp: a.color_temp_kelvin ?? null,
+    canColor: modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m)),
+    canTemp: modes.includes("color_temp"),
+    canDim: modes.some((m) => m !== "onoff")
+  };
+}
+
+// Live updates: the server keeps the Home Assistant token, opens Home Assistant's WebSocket, and passes each
+// device change on to the mirror's browser as a server-sent event, so the screen changes the moment the house does.
+function homeAssistantStream(req, res, config) {
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+  const send = (event, data) => { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {} };
+  let socket = null, closed = false, nextId = 1, retry = null;
+  const keepAlive = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 25000);
+  const connect = () => {
+    if (closed) return;
+    try { socket = new WebSocket(`${config.baseUrl.replace(/^http/, "ws")}/api/websocket`); } catch (error) { send("status", { live: false, error: error.message }); return; }
+    socket.addEventListener("message", async (message) => {
+      let data; try { data = JSON.parse(String(message.data)); } catch { return; }
+      if (data.type === "auth_required") socket.send(JSON.stringify({ type: "auth", access_token: config.token }));
+      else if (data.type === "auth_invalid") { send("status", { live: false, error: "Home Assistant refused the token." }); socket.close(); }
+      else if (data.type === "auth_ok") { socket.send(JSON.stringify({ id: nextId++, type: "subscribe_events", event_type: "state_changed" })); send("status", { live: true }); }
+      else if (data.type === "event" && data.event?.data?.new_state) {
+        const entity = haEntity(data.event.data.new_state, await homeAssistantAreas(config));
+        if (entity) send("entity", entity);
+      } else if (data.type === "event" && data.event?.data && !data.event.data.new_state) send("removed", { id: data.event.data.entity_id });
+    });
+    socket.addEventListener("close", () => { if (closed) return; send("status", { live: false }); retry = setTimeout(connect, 5000); });
+    socket.addEventListener("error", () => {});
+  };
+  connect();
+  req.on("close", () => { closed = true; clearInterval(keepAlive); clearTimeout(retry); try { socket?.close(); } catch {} });
+}
+
+// Rooms come from Home Assistant's areas. The REST API has no area list, so a template prints
+// "entity|area id|area name" lines. Older servers without area support just get no rooms.
+let haAreaCache = { key: "", at: 0, map: {} };
+async function homeAssistantAreas(config) {
+  if (haAreaCache.key === config.baseUrl && Date.now() - haAreaCache.at < 300000) return haAreaCache.map;
+  const template = "{% for s in states %}{% set a = area_id(s.entity_id) %}{% if a %}{{ s.entity_id }}|{{ a }}|{{ area_name(a) }}\n{% endif %}{% endfor %}";
+  const map = {};
+  try {
+    const response = await fetch(`${config.baseUrl}/api/template`, { method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ template }) });
+    if (response.ok) for (const line of (await response.text()).split("\n")) {
+      const [entity, id, name] = line.split("|");
+      if (entity && id) map[entity.trim()] = { id: id.trim(), name: (name || id).trim() };
+    }
+  } catch {}
+  haAreaCache = { key: config.baseUrl, at: Date.now(), map };
+  return map;
+}
+
 async function api(req, res, url) {
   if (url.pathname === "/api/session" && req.method === "GET") {
     const session = currentAccount(req);
@@ -306,13 +374,31 @@ async function api(req, res, url) {
       const response = await fetch(`${config.baseUrl}/api/states`, { headers: { Authorization: `Bearer ${config.token}` } });
       if (!response.ok) return json(res, response.status, { error: "Home Assistant sync failed." });
       const all = await response.json();
-      const domains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "sensor", "binary_sensor"]);
-      const entities = (Array.isArray(all) ? all : []).filter((entity) => domains.has(String(entity.entity_id).split(".")[0])).map((entity) => ({
-        id: entity.entity_id, domain: String(entity.entity_id).split(".")[0], name: entity.attributes?.friendly_name || entity.entity_id,
-        state: entity.state, unit: entity.attributes?.unit_of_measurement || "", brightness: entity.attributes?.brightness ?? null, temperature: entity.attributes?.temperature ?? null
-      }));
+      const areas = await homeAssistantAreas(config);
+      const entities = (Array.isArray(all) ? all : []).map((entity) => haEntity(entity, areas)).filter(Boolean);
       return json(res, 200, { entities, syncedAt: new Date().toISOString() });
     } catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/homeassistant/stream" && req.method === "GET") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    return homeAssistantStream(req, res, config);
+  }
+  // Camera feeds come through the mirror's server so the Home Assistant token never reaches the browser.
+  const cameraMatch = url.pathname.match(/^\/api\/homeassistant\/camera\/(camera\.[a-z0-9_]+)$/);
+  if (cameraMatch && req.method === "GET") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    const still = url.searchParams.get("still") === "1";
+    const controller = new AbortController();
+    req.on("close", () => controller.abort());
+    try {
+      const response = await fetch(`${config.baseUrl}/api/${still ? "camera_proxy" : "camera_proxy_stream"}/${cameraMatch[1]}`, { headers: { Authorization: `Bearer ${config.token}` }, signal: controller.signal });
+      if (!response.ok || !response.body) return json(res, response.status || 502, { error: "That camera isn't available." });
+      res.writeHead(200, { "Content-Type": response.headers.get("content-type") || "image/jpeg", "Cache-Control": "no-store" });
+      for await (const chunk of response.body) { if (!res.write(chunk)) await new Promise((r) => res.once("drain", r)); }
+      return res.end();
+    } catch (error) { if (!res.headersSent) return json(res, 502, { error: error.message }); return res.end(); }
   }
   if (url.pathname === "/api/homeassistant/service" && req.method === "POST") {
     const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
@@ -557,12 +643,16 @@ Each user turn starts with a [Mirror context] block holding the live time, weath
 
 When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
 
-Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
+Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. The mirror has a 3D House screen (show_screen house): when someone asks to see a room ("show me the bedroom"), the house, a floor ("go downstairs") or a camera ("show the front door camera"), use show_room, show_house or show_camera; when they control a room's devices, also show that room. For "goodnight", "I'm leaving", "movie night" and similar, use run_scene with a scene key from the context. For "what's on", list the lights and devices that are on, briefly, by room. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
 }
 
 const assistantTools = [
-  { name: "show_screen", description: "Switch the mirror to one of its screens.", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "settings"] } }, required: ["screen"], additionalProperties: false } },
-  { name: "control_device", description: "Control a Home Assistant device listed in the mirror context. Use turn_on/turn_off/toggle for lights, switches and fans (brightness_pct optionally sets light brightness), activate for scenes, lock/unlock for locks, open/close for covers, and set_temperature (with temperature) for climate.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, temperature: { type: "number" } }, required: ["entity_id", "action"], additionalProperties: false } },
+  { name: "show_screen", description: "Switch the mirror to one of its screens.", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "house", "settings"] } }, required: ["screen"], additionalProperties: false } },
+  { name: "show_room", description: "Show a room on the 3D House screen: the camera flies to it and its controls open. Use a room key or name from the 3D house list in the context.", input_schema: { type: "object", properties: { room: { type: "string" } }, required: ["room"], additionalProperties: false } },
+  { name: "show_house", description: "Show the whole 3D house, or just one floor of it.", input_schema: { type: "object", properties: { floor: { type: "string", enum: ["all", "downstairs", "upstairs"] } }, additionalProperties: false } },
+  { name: "show_camera", description: "Show a live security camera on the 3D House screen. Use a camera id or name from the context; leave it out for the first camera.", input_schema: { type: "object", properties: { camera: { type: "string" } }, additionalProperties: false } },
+  { name: "run_scene", description: "Run a whole-house scene (for example goodnight, away, movie_night, relax, good_morning, party, all_off) using a scene key from the context.", input_schema: { type: "object", properties: { scene: { type: "string" } }, required: ["scene"], additionalProperties: false } },
+  { name: "control_device", description: "Control Home Assistant devices listed in the mirror context. Target one device with entity_id, or a whole room with area_id (all its lights by default, or the domain given). Use turn_on/turn_off/toggle for lights, switches and fans; with turn_on on lights, brightness_pct sets brightness, color sets a colour (a CSS colour name like red, blue, purple, orange) and kelvin sets white temperature (2200 warm, 4000 neutral, 6500 cool). Use activate for scenes (e.g. Hue scenes), lock/unlock for locks, open/close for covers and set_temperature (with temperature) for climate. Call it once per room or device; several calls in one turn are fine.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, area_id: { type: "string", description: "Room id from the context, e.g. living_room, to control the whole room" }, domain: { type: "string", enum: ["light", "switch", "fan", "cover"], description: "With area_id: which kind of device in the room. Defaults to light." }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, color: { type: "string" }, kelvin: { type: "integer", minimum: 2000, maximum: 6500 }, temperature: { type: "number" } }, required: ["action"], additionalProperties: false } },
   { name: "music", description: "Control Spotify on the mirror. play resumes, pause pauses, next/previous skip, play_search finds and plays a song, artist or album from query.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["play", "pause", "next", "previous", "play_search"] }, query: { type: "string" } }, required: ["action"], additionalProperties: false } },
   { name: "add_task", description: "Add a task to the mirror's task list.", input_schema: { type: "object", properties: { title: { type: "string" }, category: { type: "string", enum: ["Home", "Work", "Health", "Personal"] }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" } }, required: ["title"], additionalProperties: false } },
   { name: "complete_task", description: "Mark a task from the context as done.", input_schema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"], additionalProperties: false } },
@@ -717,10 +807,10 @@ async function assistantApi(req, res, url) {
   return json(res, 404, { error: "Not found" });
 }
 
-const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8" };
+const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".glb": "model/gltf-binary" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "assistant.css", "addons/catalog.json"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");
@@ -729,7 +819,9 @@ function serveStatic(req, res, url) {
   const ext = path.extname(file).toLowerCase();
   const isAsset = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"].includes(ext);
   const hasDotSegment = relative.split("/").some((part) => part.startsWith("."));
-  const allowed = withinRoot && !hasDotSegment && (staticAllowList.has(relative) || isAsset);
+  // The 3D Smart Home screen's built files and house model.
+  const isSmartHome = (relative.startsWith("smarthome/dist/") && [".js", ".css"].includes(ext)) || (relative.startsWith("smarthome/models/") && ext === ".glb");
+  const allowed = withinRoot && !hasDotSegment && (staticAllowList.has(relative) || isAsset || isSmartHome);
   if (!allowed) return json(res, 403, { error: "Forbidden" });
   fs.readFile(file, (error, data) => {
     if (error) return json(res, 404, { error: "Not found" });

@@ -3021,3 +3021,33 @@ body.hud-boot .hud-status { animation: hud-fade-in 400ms 200ms both; }
 @media (prefers-reduced-motion: reduce) {
   .hud-scan, .hud-dot { animation: none; }
 }
+
+/* Smart Home: rooms, light glow and the light control panel */
+#view-homekit .homekit-grid { display: flex; flex-direction: column; gap: 34px; }
+.ha-room.is-new { animation: hud-materialise 0.5s ease both; }
+.ha-room-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.28); }
+.ha-room-head h2 { margin: 0; font-size: clamp(16px, 1.4vw, 20px); font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
+.ha-room-head > span { color: var(--muted); font-size: 13px; letter-spacing: 0.08em; }
+.homekit-grid .ha-room-all { margin-left: auto; display: inline-block; min-height: 0; padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(var(--accent-rgb), 0.45); color: var(--accent); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+.homekit-grid .ha-room-all.is-on { background: rgba(var(--accent-rgb), 0.14); }
+.ha-room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.homekit-grid .ha-tile { position: relative; overflow: hidden; }
+.homekit-grid .ha-tile.has-glow { border-color: var(--glow); background: color-mix(in srgb, var(--glow) 12%, transparent); box-shadow: 0 0 24px -6px var(--glow), inset 0 0 18px -10px var(--glow); }
+.homekit-grid .ha-tile.has-glow::before { content: ""; position: absolute; top: 14px; right: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--glow); box-shadow: 0 0 12px 3px var(--glow); animation: hud-pulse 2.4s ease-in-out infinite; }
+.ha-adjust { position: absolute; right: 10px; bottom: 10px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.22); color: rgba(255, 255, 255, 0.8); font-size: 15px; }
+.ha-adjust:hover, .ha-adjust:focus-visible { border-color: var(--accent); color: var(--accent); }
+.ha-light-panel { width: min(440px, calc(100vw - 32px)); padding: 26px; border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: 18px; background: #04090c; color: #fff; box-shadow: 0 0 40px -10px rgba(var(--accent-rgb), 0.6); animation: hud-materialise 0.35s ease both; }
+.ha-light-panel::backdrop { background: rgba(0, 0, 0, 0.6); }
+.ha-light-panel h2 { margin: 4px 0 20px; font-weight: 500; }
+.ha-bright { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; color: var(--muted); }
+.ha-bright input { accent-color: var(--accent); width: 100%; }
+.ha-bright output { color: #fff; min-width: 44px; text-align: right; }
+.ha-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; margin: 20px 0; }
+.ha-swatches button { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.14); background: transparent; color: inherit; font-size: 13px; cursor: pointer; }
+.ha-swatches i { width: 14px; height: 14px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 8px var(--sw); flex: none; }
+.ha-swatches button.is-picked { border-color: var(--sw); }
+.ha-panel-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* 3D House screen: the view is a full-bleed black stage; smarthome/dist/smarthome.css styles its contents */
+.house3d-view { position: fixed; inset: 0; padding: 0; background: #000; }
+.house3d-root { position: absolute; inset: 0; }
