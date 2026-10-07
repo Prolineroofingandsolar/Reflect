@@ -423,7 +423,7 @@ function renderHomeKit(){
     return;
   }
   if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
-  renderHouse();
+  window.renderHouse?.();
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
@@ -445,86 +445,6 @@ function renderHomeKit(){
 // "Living Room Lamp" reads as "Lamp" under the Living Room heading.
 function shortName(e){const a=(e.area||"").toLowerCase();return a&&e.name.toLowerCase().startsWith(`${a} `)&&e.name.length>a.length+1?e.name.slice(a.length+1):e.name;}
 
-// ---------- Holographic house ----------
-// Rooms from Home Assistant become a blueprint house: three rooms per floor under a roof.
-// Each light is a dot that casts a pool of its real colour; tap a dot to toggle it, a room to switch all its lights.
-function houseRooms(){
-  const map=new Map();
-  homeAssistantEntities.filter(e=>e.areaId).forEach(e=>{if(!map.has(e.areaId))map.set(e.areaId,{id:e.areaId,name:e.area,items:[]});map.get(e.areaId).items.push(e);});
-  return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name));
-}
-function houseLevel(e){return entityIsOn(e)?(e.brightness!=null?Math.max(.25,e.brightness/255):1):0;}
-function renderHouse(){
-  const wrap=$("homekitHouse");if(!wrap)return;
-  const rooms=houseRooms();
-  if(!rooms.length){wrap.innerHTML=homeAssistantEntities.length?`<p class="ha-help">Put your devices into rooms (areas) in Home Assistant to see your house here.</p>`:"";return;}
-  const key=rooms.map(r=>`${r.id}:${r.items.filter(e=>e.domain==="light").map(e=>e.id).join(",")}`).join("|");
-  const svg=wrap.querySelector("svg");
-  if(svg&&svg.dataset.key===key){updateHouse(svg,rooms);return;}
-  const cols=Math.min(3,rooms.length),floors=Math.ceil(rooms.length/cols);
-  const W=1000,X0=70,innerW=W-2*X0,RH=190,ROOF=150,TOP=40,H=TOP+ROOF+floors*RH+60,rw=innerW/cols;
-  const roofY=TOP+ROOF,groundY=roofY+floors*RH;
-  let defs="",body="";
-  rooms.forEach((r,i)=>{
-    const f=Math.floor(i/cols),c=i%cols,inRow=Math.min(cols,rooms.length-f*cols);
-    const w=innerW/inRow,x=X0+c*w,y=roofY+f*RH,lights=r.items.filter(e=>e.domain==="light"),others=r.items.filter(e=>e.domain!=="light");
-    const cid=`hhc${i}`;
-    defs+=`<clipPath id="${cid}"><rect x="${x}" y="${y}" width="${w}" height="${RH}"/></clipPath>`;
-    const spots=lights.map((e,j)=>({e,cx:x+w*(j+1)/(lights.length+1),cy:y+RH*0.42}));
-    body+=`<g class="hh-room" data-area="${esc(r.id)}" style="--d:${0.5+i*0.12}s">
-      <g clip-path="url(#${cid})">${spots.map(s=>`<circle class="hh-pool" data-pool="${esc(s.e.id)}" cx="${s.cx}" cy="${s.cy}" r="${Math.min(w*0.45,150)}"/>`).join("")}</g>
-      <rect class="hh-hit" x="${x}" y="${y}" width="${w}" height="${RH}"/>
-      <rect class="hh-wall" x="${x+3}" y="${y+3}" width="${w-6}" height="${RH-6}" pathLength="100"/>
-      <text class="hh-name" x="${x+18}" y="${y+RH-46}">${esc(r.name.toUpperCase())}</text>
-      <text class="hh-sub" x="${x+18}" y="${y+RH-22}" data-sub></text>
-      ${others.length?`<text class="hh-extra" x="${x+w-18}" y="${y+RH-22}" text-anchor="end">${others.map(e=>esc(houseBadge(e))).join("  ")}</text>`:""}
-      ${spots.map(s=>`<g class="hh-light" data-ha-toggle="${esc(s.e.id)}" transform="translate(${s.cx} ${s.cy})"><title>${esc(s.e.name)}</title><circle class="hh-ring" r="17"/><circle class="hh-core" r="7"/><circle class="hh-ripple" r="17"/></g>`).join("")}
-    </g>`;
-  });
-  const roof=`M${X0-30} ${roofY} L${W/2} ${TOP} L${W-X0+30} ${roofY}`;
-  wrap.innerHTML=`<svg class="ha-house is-new" viewBox="0 0 ${W} ${H}" data-key="${esc(key)}" role="img" aria-label="Your house">
-    <defs>${defs}<pattern id="hhGrid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" class="hh-gridline"/></pattern>
-      <filter id="hhBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
-      <linearGradient id="hhScan" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity="0"/><stop offset="1" stop-color="currentColor" stop-opacity=".35"/></linearGradient></defs>
-    <rect class="hh-grid" x="${X0}" y="${roofY}" width="${innerW}" height="${floors*RH}" fill="url(#hhGrid)"/>
-    ${body}
-    <path class="hh-roof" d="${roof}" pathLength="100"/>
-    <path class="hh-roof hh-roof-inner" d="M${X0} ${roofY} L${W/2} ${TOP+26} L${W-X0} ${roofY}" pathLength="100"/>
-    <rect class="hh-chimney" x="${W*0.7}" y="${TOP+40}" width="34" height="56" pathLength="100"/>
-    <path class="hh-ground" d="M${X0-60} ${groundY} H${W-X0+60}" pathLength="100"/>
-    <text class="hh-tag" x="${X0-30}" y="${groundY+36}">HOME · ${rooms.length} ROOMS</text>
-    <text class="hh-tag" x="${W-X0+30}" y="${groundY+36}" text-anchor="end" data-total></text>
-    <g class="hh-scanner"><rect x="${X0}" y="-60" width="${innerW}" height="60" fill="url(#hhScan)"/><line x1="${X0}" x2="${W-X0}" y1="0" y2="0"/></g>
-    <style>.ha-house .hh-scanner{--scan-h:${H}px}</style>
-  </svg>`;
-  const s=wrap.querySelector("svg");
-  s.querySelectorAll(".hh-light").forEach(el=>el.addEventListener("click",ev=>{ev.stopPropagation();houseRipple(el);toggleEntity(el.dataset.haToggle);}));
-  s.querySelectorAll(".hh-room").forEach(el=>el.addEventListener("click",()=>{const r=houseRooms().find(x=>x.id===el.dataset.area);const lights=r?.items.filter(e=>e.domain==="light")||[];if(!lights.length)return;el.querySelectorAll(".hh-light").forEach(houseRipple);callHomeAssistant(lights.some(entityIsOn)?"light.turn_off":"light.turn_on",{area_id:r.id});}));
-  updateHouse(s,rooms);
-  replayHouse();
-}
-// The house draws itself in each time the Smart Home screen opens.
-let houseTimer=0;
-function replayHouse(){
-  const s=$("homekitHouse")?.querySelector("svg");if(!s||!$("view-homekit")?.classList.contains("is-active"))return;
-  s.classList.remove("is-new");void s.getBBox();s.classList.add("is-new");
-  clearTimeout(houseTimer);houseTimer=setTimeout(()=>s.classList.remove("is-new"),3400);
-}
-function houseBadge(e){if(e.domain==="climate")return `${e.temperature!=null?Math.round(e.temperature):"–"}°`;if(e.domain==="lock")return String(e.state).toLowerCase()==="locked"?"LOCKED":"UNLOCKED";if(e.domain==="sensor"&&e.unit)return `${e.state}${e.unit}`;return "";}
-function houseRipple(el){const r=el.querySelector(".hh-ripple");if(!r)return;r.classList.remove("go");void r.getBBox();r.classList.add("go");}
-function updateHouse(svg,rooms){
-  let on=0,total=0;
-  rooms.forEach(r=>{
-    const lights=r.items.filter(e=>e.domain==="light"),lit=lights.filter(entityIsOn);on+=lit.length;total+=lights.length;
-    const g=svg.querySelector(`.hh-room[data-area="${CSS.escape(r.id)}"]`);if(!g)return;
-    g.classList.toggle("is-lit",lit.length>0);
-    const sub=g.querySelector("[data-sub]");if(sub)sub.textContent=lights.length?`${lit.length}/${lights.length} LIGHTS ON`:`${r.items.length} DEVICE${r.items.length===1?"":"S"}`;
-    lights.forEach(e=>{const level=houseLevel(e),glow=entityIsOn(e)?lightGlow(e):"transparent";
-      const pool=g.querySelector(`[data-pool="${CSS.escape(e.id)}"]`);if(pool){pool.style.fill=glow;pool.style.opacity=(level*0.55).toFixed(2);}
-      const dot=g.querySelector(`.hh-light[data-ha-toggle="${CSS.escape(e.id)}"]`);if(dot){dot.classList.toggle("is-on",level>0);dot.style.setProperty("--glow",entityIsOn(e)?lightGlow(e):"");}});
-  });
-  const t=svg.querySelector("[data-total]");if(t)t.textContent=`${on}/${total} LIGHTS ON`;
-}
 function lightGlow(e){if(e.rgb)return `rgb(${e.rgb.join(",")})`;if(e.colorTemp)return e.colorTemp<3200?"rgb(255,190,120)":e.colorTemp>5000?"rgb(200,225,255)":"rgb(255,228,190)";return "var(--accent)";}
 async function callHomeAssistant(service,data){
   try{await api("/api/homeassistant/service",{method:"POST",body:JSON.stringify({service,data})});setTimeout(loadHomeAssistant,500);}
@@ -751,7 +671,7 @@ async function playSpotifyContext(uri){
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("settings");openSettingsPage("connections");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit"){loadHomeAssistant();replayHouse();}if(reveal)showNav();}
+function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit"){loadHomeAssistant();window.replayHouse?.();}if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
