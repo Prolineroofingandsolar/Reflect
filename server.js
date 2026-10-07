@@ -196,6 +196,56 @@ async function refreshProvider(accountRecord, providerId) {
   return token;
 }
 
+// The devices the mirror shows, and the parts of each one it needs, in one compact shape.
+const haDomains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "script", "sensor", "binary_sensor", "media_player", "camera", "alarm_control_panel"]);
+function haEntity(entity, areas) {
+  const domain = String(entity?.entity_id || "").split(".")[0];
+  if (!haDomains.has(domain)) return null;
+  const a = entity.attributes || {};
+  const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
+  return {
+    id: entity.entity_id, domain, name: a.friendly_name || entity.entity_id, state: entity.state,
+    unit: a.unit_of_measurement || "", deviceClass: a.device_class || "",
+    brightness: a.brightness ?? null, temperature: a.temperature ?? null,
+    currentTemperature: a.current_temperature ?? null, hvacAction: a.hvac_action || "",
+    position: a.current_position ?? null,
+    media: domain === "media_player" ? { title: a.media_title || "", artist: a.media_artist || "", volume: a.volume_level ?? null, source: a.source || "" } : null,
+    areaId: areas[entity.entity_id]?.id || "", area: areas[entity.entity_id]?.name || "",
+    rgb: Array.isArray(a.rgb_color) ? a.rgb_color : null,
+    colorTemp: a.color_temp_kelvin ?? null,
+    canColor: modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m)),
+    canTemp: modes.includes("color_temp"),
+    canDim: modes.some((m) => m !== "onoff")
+  };
+}
+
+// Live updates: the server keeps the Home Assistant token, opens Home Assistant's WebSocket, and passes each
+// device change on to the mirror's browser as a server-sent event, so the screen changes the moment the house does.
+function homeAssistantStream(req, res, config) {
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+  const send = (event, data) => { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {} };
+  let socket = null, closed = false, nextId = 1, retry = null;
+  const keepAlive = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 25000);
+  const connect = () => {
+    if (closed) return;
+    try { socket = new WebSocket(`${config.baseUrl.replace(/^http/, "ws")}/api/websocket`); } catch (error) { send("status", { live: false, error: error.message }); return; }
+    socket.addEventListener("message", async (message) => {
+      let data; try { data = JSON.parse(String(message.data)); } catch { return; }
+      if (data.type === "auth_required") socket.send(JSON.stringify({ type: "auth", access_token: config.token }));
+      else if (data.type === "auth_invalid") { send("status", { live: false, error: "Home Assistant refused the token." }); socket.close(); }
+      else if (data.type === "auth_ok") { socket.send(JSON.stringify({ id: nextId++, type: "subscribe_events", event_type: "state_changed" })); send("status", { live: true }); }
+      else if (data.type === "event" && data.event?.data?.new_state) {
+        const entity = haEntity(data.event.data.new_state, await homeAssistantAreas(config));
+        if (entity) send("entity", entity);
+      } else if (data.type === "event" && data.event?.data && !data.event.data.new_state) send("removed", { id: data.event.data.entity_id });
+    });
+    socket.addEventListener("close", () => { if (closed) return; send("status", { live: false }); retry = setTimeout(connect, 5000); });
+    socket.addEventListener("error", () => {});
+  };
+  connect();
+  req.on("close", () => { closed = true; clearInterval(keepAlive); clearTimeout(retry); try { socket?.close(); } catch {} });
+}
+
 // Rooms come from Home Assistant's areas. The REST API has no area list, so a template prints
 // "entity|area id|area name" lines. Older servers without area support just get no rooms.
 let haAreaCache = { key: "", at: 0, map: {} };
@@ -324,24 +374,31 @@ async function api(req, res, url) {
       const response = await fetch(`${config.baseUrl}/api/states`, { headers: { Authorization: `Bearer ${config.token}` } });
       if (!response.ok) return json(res, response.status, { error: "Home Assistant sync failed." });
       const all = await response.json();
-      const domains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "sensor", "binary_sensor"]);
       const areas = await homeAssistantAreas(config);
-      const entities = (Array.isArray(all) ? all : []).filter((entity) => domains.has(String(entity.entity_id).split(".")[0])).map((entity) => {
-        const a = entity.attributes || {};
-        const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
-        return {
-          id: entity.entity_id, domain: String(entity.entity_id).split(".")[0], name: a.friendly_name || entity.entity_id,
-          state: entity.state, unit: a.unit_of_measurement || "", brightness: a.brightness ?? null, temperature: a.temperature ?? null,
-          areaId: areas[entity.entity_id]?.id || "", area: areas[entity.entity_id]?.name || "",
-          rgb: Array.isArray(a.rgb_color) ? a.rgb_color : null,
-          colorTemp: a.color_temp_kelvin ?? null,
-          canColor: modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m)),
-          canTemp: modes.includes("color_temp"),
-          canDim: modes.some((m) => m !== "onoff")
-        };
-      });
+      const entities = (Array.isArray(all) ? all : []).map((entity) => haEntity(entity, areas)).filter(Boolean);
       return json(res, 200, { entities, syncedAt: new Date().toISOString() });
     } catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/homeassistant/stream" && req.method === "GET") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    return homeAssistantStream(req, res, config);
+  }
+  // Camera feeds come through the mirror's server so the Home Assistant token never reaches the browser.
+  const cameraMatch = url.pathname.match(/^\/api\/homeassistant\/camera\/(camera\.[a-z0-9_]+)$/);
+  if (cameraMatch && req.method === "GET") {
+    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
+    const still = url.searchParams.get("still") === "1";
+    const controller = new AbortController();
+    req.on("close", () => controller.abort());
+    try {
+      const response = await fetch(`${config.baseUrl}/api/${still ? "camera_proxy" : "camera_proxy_stream"}/${cameraMatch[1]}`, { headers: { Authorization: `Bearer ${config.token}` }, signal: controller.signal });
+      if (!response.ok || !response.body) return json(res, response.status || 502, { error: "That camera isn't available." });
+      res.writeHead(200, { "Content-Type": response.headers.get("content-type") || "image/jpeg", "Cache-Control": "no-store" });
+      for await (const chunk of response.body) { if (!res.write(chunk)) await new Promise((r) => res.once("drain", r)); }
+      return res.end();
+    } catch (error) { if (!res.headersSent) return json(res, 502, { error: error.message }); return res.end(); }
   }
   if (url.pathname === "/api/homeassistant/service" && req.method === "POST") {
     const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;

@@ -358,7 +358,7 @@ async function connectAddOn(id){
   if(id==="smartHome"){$("haDialogError").textContent="";$("haDialog").showModal();return;}
   try{const response=await fetch(`/api/integrations/${id}/connect`,{redirect:"manual"});if(response.type==="opaqueredirect"||response.status===0){location.href=`/api/integrations/${id}/connect`;return;}const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"Connection could not start.");location.href=response.url;}catch(error){profile.addOns[id].error=error.message;saveProfile();setMessage(error.message,true);renderConnections();}
 }
-async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){homeAssistantEntities=[];renderHomeKit();renderHome();}renderConnections();renderSpotifyPage();}catch(error){setMessage(error.message,true);}}
+async function disconnectAddOn(id){try{const state=await api(`/api/addons/${id}/disconnect`,{method:"POST",body:"{}"});profile.addOns[id]={...profile.addOns[id],...state,error:""};saveProfile();if(id==="smartHome"){closeHomeStream();homeAssistantEntities=[];renderHomeKit();renderHome();}renderConnections();renderSpotifyPage();}catch(error){setMessage(error.message,true);}}
 function formatSync(value){const date=new Date(value);return Number.isNaN(date.valueOf())?value:`Synced ${date.toLocaleString()}`;}
 
 // Brightness, colour and white temperature for a light.turn_on call, shared by the Smart Home screen and Jarvis.
@@ -397,9 +397,29 @@ async function connectHomeAssistant(event){
   }catch(error){$("haDialogError").textContent=error.message;}
 }
 async function loadHomeAssistant(){
-  if(!connected("smartHome")){renderHomeKit();return;}
-  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();}
+  if(!connected("smartHome")){renderHomeKit();closeHomeStream();return;}
+  try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();openHomeStream();}
   catch(error){$("homekitStatus").textContent=error.message;}
+}
+// Live device changes from Home Assistant, pushed through the mirror's server. Changes are batched into one
+// redraw per frame; listeners (the 3D house) hear about each changed device.
+let homeStream=null,homeStreamQueue=new Map(),homeStreamLive=false;
+const homeListeners=new Set();
+function onHomeChange(fn){homeListeners.add(fn);return()=>homeListeners.delete(fn);}
+function openHomeStream(){
+  if(homeStream||typeof EventSource==="undefined")return;
+  homeStream=new EventSource("/api/homeassistant/stream");
+  homeStream.addEventListener("status",ev=>{try{homeStreamLive=Boolean(JSON.parse(ev.data).live);}catch{}});
+  homeStream.addEventListener("entity",ev=>{let e;try{e=JSON.parse(ev.data);}catch{return;}const first=!homeStreamQueue.size;homeStreamQueue.set(e.id,e);if(first)requestAnimationFrame(flushHomeStream);});
+  homeStream.addEventListener("removed",ev=>{try{const {id}=JSON.parse(ev.data);homeAssistantEntities=homeAssistantEntities.filter(e=>e.id!==id);renderHomeKit();}catch{}});
+  homeStream.onerror=()=>{homeStreamLive=false;};
+}
+function closeHomeStream(){homeStream?.close();homeStream=null;homeStreamLive=false;}
+function flushHomeStream(){
+  const changed=[...homeStreamQueue.values()];homeStreamQueue.clear();
+  changed.forEach(e=>{const i=homeAssistantEntities.findIndex(x=>x.id===e.id);if(i>=0)homeAssistantEntities[i]=e;else homeAssistantEntities.push(e);});
+  renderHomeKit();renderHome();
+  homeListeners.forEach(fn=>{try{fn(changed);}catch(error){console.error(error);}});
 }
 async function toggleEntity(id){
   const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
@@ -793,5 +813,5 @@ $("setupNext")?.addEventListener("click",setupAdvance);
 $("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
 $("setupSkip")?.addEventListener("click",completeSetup);
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(loadHomeAssistant,30000);watchForUpdates();setInterval(watchForUpdates,120000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(()=>{if(!homeStreamLive)loadHomeAssistant();},30000);watchForUpdates();setInterval(watchForUpdates,120000);}
 boot();
