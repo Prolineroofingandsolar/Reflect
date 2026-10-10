@@ -176,15 +176,29 @@ body.house3d-active .quick-nav:not(:hover) { opacity: 0; }
 .hb-gridline { fill: none; stroke: rgba(var(--cyan), 0.09); stroke-width: 0.02; }
 .hb-compass { fill: rgba(var(--cyan), 0.45); text-anchor: middle; letter-spacing: 0.2em; }
 .hb-below { fill: none; stroke: rgba(var(--ice), 0.25); stroke-width: 0.04; stroke-dasharray: 0.2 0.15; pointer-events: none; }
-.hb-room rect { fill: rgba(var(--cyan), 0.08); stroke: rgba(var(--cyan), 0.75); stroke-width: 0.05; cursor: grab; transition: fill 0.2s; }
-.hb-room:hover rect { fill: rgba(var(--cyan), 0.14); }
-.hb-room.is-sel rect { fill: rgba(var(--cyan), 0.2); stroke: #fff; stroke-width: 0.07; filter: drop-shadow(0 0 0.25px rgb(var(--cyan))); }
-.hb-room.is-out rect { fill: rgba(120, 220, 160, 0.05); stroke: rgba(120, 220, 160, 0.6); stroke-dasharray: 0.3 0.15; }
-.hb-room.is-clash rect { stroke: rgb(var(--warm)); fill: rgba(var(--warm), 0.12); }
+.hb-room .hb-shape { fill: rgba(var(--cyan), 0.08); stroke: rgba(var(--cyan), 0.75); stroke-width: 0.05; cursor: grab; transition: fill 0.2s; }
+.hb-room:hover .hb-shape { fill: rgba(var(--cyan), 0.14); }
+.hb-room.is-sel .hb-shape { fill: rgba(var(--cyan), 0.2); stroke: #fff; stroke-width: 0.07; filter: drop-shadow(0 0 0.25px rgb(var(--cyan))); }
+.hb-room.is-out .hb-shape { fill: rgba(120, 220, 160, 0.05); stroke: rgba(120, 220, 160, 0.6); stroke-dasharray: 0.3 0.15; }
+.hb-room.is-clash .hb-shape { stroke: rgb(var(--warm)); fill: rgba(var(--warm), 0.12); }
 .hb-label, .hb-size, .hb-compass { letter-spacing: 0; }
+.hb-label, .hb-size { paint-order: stroke; stroke: rgba(0, 0, 0, 0.75); stroke-width: 0.08; stroke-linejoin: round; }
 .hb-label { fill: #fff; text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: 400; }
 .hb-size { fill: rgba(var(--cyan), 0.8); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .hb-handle { fill: #000; stroke: rgb(var(--cyan)); stroke-width: 0.07; cursor: nwse-resize; }
+.hb-handle.is-corner { cursor: move; }
+.hb-handle.is-active { fill: rgb(var(--cyan)); stroke: #fff; }
+.hb-add-corner { fill: rgba(0, 0, 0, 0.75); stroke: rgba(var(--cyan), 0.7); stroke-width: 0.04; stroke-dasharray: 0.08 0.06; cursor: copy; }
+.hb-add-corner + text, .hb-plus { fill: rgb(var(--cyan)); text-anchor: middle; dominant-baseline: central; pointer-events: none; letter-spacing: 0; }
+.hb-stairs .hb-st-body { fill: rgba(var(--ice), 0.1); stroke: rgba(var(--ice), 0.85); stroke-width: 0.05; cursor: grab; }
+.hb-stairs.is-sel .hb-st-body { fill: rgba(var(--ice), 0.22); stroke: #fff; stroke-width: 0.07; }
+.hb-stairs.is-ghost { pointer-events: none; opacity: 0.55; }
+.hb-stairs.is-ghost .hb-st-body { fill: none; stroke-dasharray: 0.2 0.12; }
+.hb-step { stroke: rgba(var(--ice), 0.45); stroke-width: 0.03; pointer-events: none; }
+.hb-arrow { stroke: rgb(var(--cyan)); stroke-width: 0.07; fill: none; pointer-events: none; }
+.hb-arrow-head { fill: rgb(var(--cyan)); pointer-events: none; }
+.hb-up { fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none; letter-spacing: 0; font-weight: 600; }
+.hb-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .hb-warn { position: absolute; left: 16px; top: 12px; right: 16px; margin: 0; font-size: 14px; color: #ffd1ad; }
 .hb-side { min-height: 0; overflow-y: auto; border: 1px solid rgba(var(--cyan), 0.2); border-radius: 22px; padding: 18px; background: rgba(0, 10, 16, 0.55); scrollbar-width: none; }
 .hb-edit, .hb-add { display: grid; gap: 14px; }
@@ -209,8 +223,8 @@ body.house3d-active .quick-nav:not(:hover) { opacity: 0; }
 .hb-template:hover { border-color: rgb(var(--cyan)); }
 .hb-template strong { font-size: 18px; font-weight: 400; } .hb-template small { font-size: 13px; color: rgba(var(--ice), 0.65); }
 .hb-mini { width: 100%; height: 110px; }
-.hb-mini rect { fill: rgba(var(--cyan), 0.12); stroke: rgb(var(--cyan)); stroke-width: 0.08; }
-.hb-mini rect.is-out { fill: none; stroke: rgba(120, 220, 160, 0.6); stroke-dasharray: 0.3 0.2; }
+.hb-mini .hb-shape { fill: rgba(var(--cyan), 0.12); stroke: rgb(var(--cyan)); stroke-width: 0.08; }
+.hb-mini .hb-shape.is-out { fill: none; stroke: rgba(120, 220, 160, 0.6); stroke-dasharray: 0.3 0.2; }
 @media (orientation: portrait), (max-width: 1100px) {
   .hb { overflow-y: auto; }
   .hb-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(360px, 55vh) auto; }
