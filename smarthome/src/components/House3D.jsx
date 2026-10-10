@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { CameraControls, useGLTF } from "@react-three/drei";
 import { readModel } from "../houseMap.js";
+import { buildHouse } from "../houseBuilder.js";
 import { Room } from "./Room.jsx";
 import { Device3D } from "./Device3D.jsx";
 import { Beams } from "./Beams.jsx";
@@ -13,22 +14,29 @@ import { CYAN, edgeMaterial } from "./materials.js";
 
 const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function useHouseModel(url) {
+// The house is built from the layout made in the house builder; a custom GLB (house-map.json "model")
+// can replace it for anyone who has modelled their home in Blender or similar.
+export function useLayoutModel(layout) {
+  return useMemo(() => readModel(buildHouse(layout)), [layout]);
+}
+export function useGlbModel(url) {
   const { scene } = useGLTF(url);
   return useMemo(() => readModel(scene), [scene]);
 }
+// Hidden: rooms and shell above the floor being viewed.
+export const aboveView = (floor, view) => typeof view.floor === "number" && view.mode !== "room" && floor > view.floor;
+// Dimmed: floors below the one being viewed, so its own rooms stand out.
+const belowView = (floor, view) => typeof view.floor === "number" && view.mode !== "room" && floor < view.floor;
 
-function Structure({ model, focus, floor }) {
-  const parts = useMemo(() => model.structure.map((g) => ({ edges: new THREE.EdgesGeometry(g, 25), top: new THREE.Box3().setFromBufferAttribute(g.attributes.position).min.y })), [model]);
+function Structure({ model, focus, view }) {
+  const parts = useMemo(() => model.structure.map((p) => ({ edges: new THREE.EdgesGeometry(p.geometry, 25), floor: p.floor, roof: p.roof })), [model]);
   const mats = useRef([]);
-  const firstFloorY = 3 - 0.2;
   useFrame((_, dt) => {
     parts.forEach((p, i) => {
       const m = mats.current[i]; if (!m) return;
-      const isRoof = p.top > 5.5, isUpper = p.top > firstFloorY;
-      let target = isRoof ? 0.22 : 0.4;
-      if (focus) target = isRoof ? 0 : 0.08;
-      if (floor === 0 && isUpper) target = 0;
+      let target = p.roof ? 0.22 : 0.4;
+      if (focus) target = p.roof ? 0 : 0.08;
+      if (typeof view.floor === "number" && view.mode !== "room" && (p.floor > view.floor || (p.roof && p.floor >= view.floor))) target = 0;
       m.opacity = THREE.MathUtils.damp(m.opacity, target, 4, dt);
       m.visible = m.opacity > 0.005;
     });
@@ -71,7 +79,7 @@ function CameraRig({ model, view }) {
 
   useEffect(() => {
     const c = controls.current; if (!c) return;
-    const dist = span * (portrait ? 2.0 : 1.35);
+    const dist = portrait ? span * 2.4 + 8 : span * 1.1 + 6;
     if (view.mode === "room" && view.room) {
       const room = model.rooms.find((r) => r.key === view.room); if (!room) return;
       const rc = new THREE.Vector3(...room.center), dims = room.box.getSize(new THREE.Vector3());
@@ -84,7 +92,7 @@ function CameraRig({ model, view }) {
       c.setFocalOffset(portrait ? 0 : d * 0.32, portrait ? -d * 0.2 : 0, 0, true);
       idleAt.current = performance.now() + 4000;
       return;
-    } else if (view.floor === 0 || view.floor === 1) {
+    } else if (typeof view.floor === "number") {
       const y = view.floor * 3 + 1;
       c.setLookAt(center.x + dist * 0.45, y + dist * 0.75, center.z + dist * 0.7, center.x, y, center.z, true);
     } else {
@@ -135,10 +143,10 @@ export function House3D({ model, rooms, placements, entities, view, onSelectRoom
       <group ref={group}>
         <group position={[0, 0, 0]}>
           <Base model={model} />
-          <Structure model={model} focus={focus} floor={view.floor} />
+          <Structure model={model} focus={focus} view={view} />
           {model.rooms.map((room) => {
-            const hidden = view.floor === 0 && room.floor > 0;
-            const mode = hidden ? "hidden" : focus ? (focus === room.key ? "focus" : "dim") : "normal";
+            const hidden = aboveView(room.floor, view);
+            const mode = hidden ? "hidden" : focus ? (focus === room.key ? "focus" : "dim") : belowView(room.floor, view) ? "dim" : "normal";
             return (
               <Room key={room.key} room={room} light={rooms.get(room.key)} mode={mode} hovered={hover === room.key} quiet={quiet}
                 pulse={effects.pulses[room.key]}
@@ -149,8 +157,8 @@ export function House3D({ model, rooms, placements, entities, view, onSelectRoom
           {[...placements].map(([id, p]) => {
             const e = byId.get(id); if (!e || !p.spot || !p.room) return null;
             const room = model.rooms.find((r) => r.key === p.room);
-            const hidden = view.floor === 0 && room.floor > 0;
-            const mode = hidden ? "hidden" : focus ? (focus === p.room ? "focus" : "dim") : "normal";
+            const hidden = aboveView(room.floor, view);
+            const mode = hidden ? "hidden" : focus ? (focus === p.room ? "focus" : "dim") : belowView(room.floor, view) ? "dim" : "normal";
             return <Device3D key={id} entity={e} spot={p.spot} mode={mode} selected={view.device === id}
               onSelect={() => { onSelectRoom(p.room); onSelectDevice(id); }} />;
           })}

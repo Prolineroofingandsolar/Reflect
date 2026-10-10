@@ -1,6 +1,5 @@
 {
-  "_help": "Links Home Assistant to the 3D house. Each room key matches a Room_<key> group in the model. 'areas' lists the Home Assistant area ids (or names) that belong to that room; rooms whose name matches an area are linked automatically, so you only need to add areas that are named differently. 'devices' pins an entity to a device spot in the model (e.g. bedside_left); anything not pinned is placed automatically by its name. Scenes run the Home Assistant scene or script named in 'entity' if you have one, otherwise the listed actions.",
-  "model": "models/house.glb",
+  "_help": "Links Home Assistant to the 3D house. The house itself is drawn from the layout made in the mirror's house builder (Edit house); to use your own 3D model instead, add \"model\": \"models/your-house.glb\" here. Room entries below are keyed by room key or room type (bedroom covers every bedroom). 'areas' lists the Home Assistant area ids (or names) that belong to that room; rooms whose name matches an area are linked automatically, so you only need to add areas that are named differently. 'devices' pins an entity to a device spot in the model (e.g. bedside_left); anything not pinned is placed automatically by its name. Scenes run the Home Assistant scene or script named in 'entity' if you have one, otherwise the listed actions.",
   "rooms": {
     "living_room": { "areas": ["lounge", "sitting_room", "front_room"], "devices": {} },
     "hallway": { "areas": ["hall", "entrance", "landing"], "devices": {} },

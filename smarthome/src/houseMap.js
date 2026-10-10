@@ -12,10 +12,16 @@ export function readModel(scene) {
   scene.updateMatrixWorld(true);
   const rooms = [], structure = [];
   const bake = (mesh) => mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+  // Shell parts know their floor and whether they are roof, so a floor view can hide what's above it.
+  // Models without that data (a GLB from Blender) fall back to judging by height.
+  const part = (mesh) => {
+    const geometry = bake(mesh), y = new THREE.Box3().setFromBufferAttribute(geometry.attributes.position).min.y;
+    return { geometry, floor: mesh.userData.floor ?? Math.max(0, Math.floor((y + 0.2) / 3)), roof: mesh.userData.roof ?? /roof|gable|chimney/i.test(mesh.name) };
+  };
   scene.traverse((o) => {
     if (o.name?.startsWith("Room_")) {
       const key = o.userData.key || o.name.slice(5);
-      const room = { key, label: o.userData.label || key.replace(/_/g, " "), floor: Number(o.userData.floor || 0), outdoor: Boolean(o.userData.outdoor), devices: [], furniture: [] };
+      const room = { key, type: o.userData.type || key, label: o.userData.label || key.replace(/_/g, " "), floor: Number(o.userData.floor || 0), outdoor: Boolean(o.userData.outdoor), devices: [], furniture: [] };
       o.traverse((m) => {
         if (!m.isMesh) return;
         const role = m.userData.role || (m.name.endsWith("_room") ? "room" : m.name.includes("_dev_") ? "device" : "furniture");
@@ -24,11 +30,11 @@ export function readModel(scene) {
           const geometry = bake(m); geometry.computeBoundingBox();
           const center = geometry.boundingBox.getCenter(new THREE.Vector3()), size = geometry.boundingBox.getSize(new THREE.Vector3());
           room.devices.push({ slot: m.userData.slot || m.name.split("_dev_")[1], kind: m.userData.kind || "generic", position: center.toArray(), size: size.toArray(), geometry });
-        } else if (role === "structure") structure.push(bake(m));
+        } else if (role === "structure") structure.push(part(m));
         else room.furniture.push(bake(m));
       });
       if (room.box) { room.center = room.box.getCenter(new THREE.Vector3()).toArray(); rooms.push(room); }
-    } else if (o.isMesh && o.name.startsWith("Structure_") && !o.parent?.name?.startsWith("Room_")) structure.push(bake(o));
+    } else if (o.isMesh && o.name.startsWith("Structure_") && !o.parent?.name?.startsWith("Room_")) structure.push(part(o));
   });
   const bounds = new THREE.Box3();
   rooms.filter((r) => !r.outdoor).forEach((r) => bounds.union(r.box));
@@ -39,9 +45,12 @@ export function readModel(scene) {
 export function roomFor(entity, model, config) {
   if (!entity.areaId && !entity.area) return null;
   const ids = [norm(entity.areaId), norm(entity.area)];
+  // Exact matches (room key or the name it was given in the builder) win over type aliases from house-map.json.
+  const exact = model.rooms.find((r) => ids.includes(r.key) || ids.includes(norm(r.label)));
+  if (exact) return exact.key;
   for (const r of model.rooms) {
-    const extra = (config?.rooms?.[r.key]?.areas || []).map(norm);
-    if (ids.includes(r.key) || ids.includes(norm(r.label)) || ids.some((id) => extra.includes(id))) return r.key;
+    const extra = (config?.rooms?.[r.key]?.areas || config?.rooms?.[r.type]?.areas || []).map(norm);
+    if (ids.some((id) => extra.includes(id))) return r.key;
   }
   return null;
 }
@@ -70,7 +79,7 @@ export function placeEntities(entities, model, config) {
   }
   for (const room of model.rooms) {
     const list = byRoom.get(room.key), free = new Map(room.devices.map((d) => [d.slot, d]));
-    const pins = config?.rooms?.[room.key]?.devices || {};
+    const pins = config?.rooms?.[room.key]?.devices || config?.rooms?.[room.type]?.devices || {};
     const take = (e, slot) => { const d = free.get(slot); if (!d) return false; free.delete(slot); placed.get(e.id).spot = d; return true; };
     const visible = list.filter((e) => SHOWN_IN_3D.has(e.domain));
     // Pinned first, then name rules, then any free anchor of a fitting kind, then an automatic spot.

@@ -4,8 +4,7 @@
   "type": "module",
   "description": "The 3D Smart Home screen for Reflect OS. The built files in dist/ are committed, so the mirror itself never needs this folder's tooling.",
   "scripts": {
-    "build": "vite build",
-    "house": "node tools/build-house.mjs"
+    "build": "vite build"
   },
   "dependencies": {
     "@react-three/drei": "9.122.0",
