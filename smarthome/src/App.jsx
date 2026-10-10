@@ -135,22 +135,15 @@ export function App({ active }) {
   }, [view.room, entities]);
   const room = world.current.model?.rooms.find((r) => r.key === view.room);
 
-  if (!bridge.connected()) {
-    return (
-      <div className="h3-app h3-setup">
-        <p className="h3-eyebrow">Smart Home</p><h2>Connect Home Assistant</h2>
-        <p>Your house appears here in 3D once the mirror is connected to Home Assistant.</p>
-        <button type="button" className="h3-pill" onClick={() => bridge.connect()}>Connect Home Assistant</button>
-      </div>
-    );
-  }
+  // Without Home Assistant the house still shows (empty rooms), with a prompt to connect it.
+  const connected = bridge.connected();
   return (
     <div className={`h3-app is-${view.mode}`}>
       <Canvas className="h3-canvas" frameloop={active ? "always" : "never"} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
         camera={{ fov: 38, near: 0.1, far: 400, position: [20, 16, 26] }} onPointerMissed={() => view.mode === "room" && dispatch({ type: "house" })}>
         {config && <Suspense fallback={null}><Scene3D config={config} entities={entities} view={view} dispatch={dispatch} effects={effects} onApi={onApi} /></Suspense>}
       </Canvas>
-      <HomeStatus status={status} weather={bridge.weather()} live={bridge.live()} />
+      <HomeStatus status={status} weather={bridge.weather()} live={bridge.live()} connected={connected} />
       <AnimatePresence>
         {view.mode === "room" && room && <RoomPanel key={room.key} room={room} entities={roomEntities} device={view.device}
           onSelectDevice={(device) => dispatch({ type: "device", device })} onClose={() => dispatch({ type: "house" })} onError={setToast} />}
@@ -159,12 +152,18 @@ export function App({ active }) {
       <FloorSwitch floors={world.current.model?.floors || 2} view={view} onHouse={() => dispatch({ type: "house" })} onFloor={(floor) => dispatch({ type: "floor", floor })} />
       <div className="h3-bottom">
         <VoiceAssistant />
-        <Indicators status={status} />
+        {connected && <Indicators status={status} />}
       </div>
       <div className="h3-actions">
         {cameras.length > 0 && view.mode !== "camera" && <button type="button" className="h3-pill" onClick={() => dispatch({ type: "camera", camera: cameras[0].id })}>Cameras</button>}
-        {config?.scenes?.length > 0 && <Scenes scenes={config.scenes} open={scenesOpen} setOpen={setScenesOpen} onRun={(k) => runScene(k).catch((e) => setToast(e.message))} />}
+        {connected && config?.scenes?.length > 0 && <Scenes scenes={config.scenes} open={scenesOpen} setOpen={setScenesOpen} onRun={(k) => runScene(k).catch((e) => setToast(e.message))} />}
       </div>
+      {!connected && (
+        <div className="h3-connect">
+          <p>Connect Home Assistant to fill your house with your lights, heating and cameras.</p>
+          <button type="button" className="h3-pill" onClick={() => bridge.connect()}>Connect</button>
+        </div>
+      )}
       <Toast message={toast} />
     </div>
   );

@@ -11,7 +11,7 @@ function useClock() {
   return now;
 }
 
-export function HomeStatus({ status, weather, live }) {
+export function HomeStatus({ status, weather, live, connected }) {
   const now = useClock();
   const w = weather?.data?.current;
   return (
@@ -25,7 +25,7 @@ export function HomeStatus({ status, weather, live }) {
         {status.security && <div className={`h3-stat${status.secure ? "" : " is-warn"}`}><small>Security</small><strong>{status.security}</strong></div>}
         {status.indoor && <div className="h3-stat"><small>Indoor</small><strong>{status.indoor}</strong></div>}
         {status.energy && <div className="h3-stat"><small>Energy</small><strong>{status.energy}</strong></div>}
-        <div className={`h3-live${live ? " is-live" : ""}`}>{live ? "Live" : "Syncing"}</div>
+        {connected && <div className={`h3-live${live ? " is-live" : ""}`}>{live ? "Live" : "Syncing"}</div>}
       </div>
     </>
   );

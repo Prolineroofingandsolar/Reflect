@@ -125,9 +125,9 @@
 .h3-app.is-room .h3-tr, .h3-app.is-camera .h3-tr { opacity: 0; }
 .h3-toast { position: absolute; top: 24px; left: 50%; translate: -50% 0; z-index: 20; padding: 12px 22px; border-radius: 999px; border: 1px solid rgba(var(--warm), 0.5); background: rgba(20, 8, 0, 0.6); color: #ffe2c6; font-size: 16px; }
 
-.h3-setup { display: grid; place-content: center; text-align: center; gap: 12px; }
-.h3-setup h2 { margin: 0; font-size: 40px; font-weight: 300; }
-.h3-setup p { margin: 0 0 12px; color: rgba(var(--ice), 0.7); font-size: 18px; }
+.h3-connect { position: absolute; top: clamp(20px, 3vw, 44px); left: 50%; translate: -50% 0; z-index: 8; display: flex; align-items: center; gap: 16px; padding: 8px 8px 8px 22px;
+  border: 1px solid rgba(var(--cyan), 0.3); border-radius: 999px; background: rgba(0, 10, 16, 0.55); backdrop-filter: blur(10px); max-width: min(720px, 90vw); }
+.h3-connect p { margin: 0; font-size: 16px; color: rgba(var(--ice), 0.85); }
 
 @keyframes h3-ping { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
 @keyframes h3-blink { 50% { opacity: 0.35; } }
