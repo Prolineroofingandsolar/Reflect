@@ -362,7 +362,11 @@ async function api(req, res, url) {
     if (!layout || !Array.isArray(layout.rooms) || layout.rooms.length > 40 || JSON.stringify(layout).length > 20000) return json(res, 400, { error: "That house layout isn't valid." });
     session.account.houseLayout = { version: 1, floors: Math.max(1, Math.min(4, Number(layout.floors) || 1)), rooms: layout.rooms.map((r) => ({
       key: String(r.key || "").slice(0, 40), type: String(r.type || "other").slice(0, 30), label: String(r.label || "").slice(0, 30), floor: Math.max(0, Math.min(3, Math.round(Number(r.floor) || 0))),
-      x: [num(r.x?.[0], 0), num(r.x?.[1], 1)], z: [num(r.z?.[0], 0), num(r.z?.[1], 1)]
+      x: [num(r.x?.[0], 0), num(r.x?.[1], 1)], z: [num(r.z?.[0], 0), num(r.z?.[1], 1)],
+      ...(Array.isArray(r.points) && { points: r.points.slice(0, 24).filter(Array.isArray).map((p) => [num(p[0], 0), num(p[1], 0)]) })
+    })), stairs: (Array.isArray(layout.stairs) ? layout.stairs : []).slice(0, 8).filter((s) => s && typeof s === "object").map((s) => ({
+      floor: Math.max(0, Math.min(3, Math.round(Number(s.floor) || 0))), x: [num(s.x?.[0], 0), num(s.x?.[1], 1)], z: [num(s.z?.[0], 0), num(s.z?.[1], 1)],
+      dir: ["n", "s", "e", "w"].includes(s.dir) ? s.dir : "n"
     })) };
     writeState(session.state);
     return json(res, 200, { layout: session.account.houseLayout });

@@ -1,6 +1,12 @@
 // A house layout is plain data the builder edits and the 3D house is generated from:
 //
-//   { version: 1, floors: 2, rooms: [{ key, type, label, floor, x: [x0, x1], z: [z0, z1] }] }
+//   { version: 1, floors: 2,
+//     rooms: [{ key, type, label, floor, x: [x0, x1], z: [z0, z1], points?: [[x, z], ...] }],
+//     stairs: [{ key, floor, x: [x0, x1], z: [z0, z1], dir: "n" | "s" | "e" | "w" }] }
+//
+// A room is a rectangle (x/z) unless it has points, which make it any shape (an L-shaped garden, a
+// kitchen with a bay); x/z are then its bounding box. Stairs start on their floor and go up towards dir
+// (n = towards the back of the house, s = the front, w = left, e = right).
 //
 // Sizes are metres. On the plan, x runs left to right and z runs from the back of the house (top) to the
 // front (bottom). Room types decide the furniture and device spots drawn in 3D; the label is what the room
@@ -97,7 +103,7 @@ export const TEMPLATES = [
     R("guest_room", "Guest Room", 1, [1.5, 6], [-0.5, 4]), R("office", "Office", 1, [0, 6], [-4, -0.5]),
     R("garden", "Garden", 0, [-6, 10.5], [-12, -4.5])] } }
 ];
-export const DEFAULT_LAYOUT = TEMPLATES[3].layout;
+export const MAX_STAIRS = 8, MAX_POINTS = 24;
 
 const snap = (v) => Math.round(v / GRID) * GRID;
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
@@ -110,6 +116,47 @@ export function newKey(type, rooms) {
   for (let i = 2; ; i++) if (!used.has(`${type}_${i}`)) return `${type}_${i}`;
 }
 
+// Geometry helpers shared by the builder and the 3D generator.
+export const roomPoly = (r) => r.points || [[r.x[0], r.z[0]], [r.x[1], r.z[0]], [r.x[1], r.z[1]], [r.x[0], r.z[1]]];
+export const bboxOf = (pts) => ({ x: [Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[0]))], z: [Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[1]))] });
+export function pointIn(poly, x, z) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// The point inside a room nearest to (x, z): used to keep labels and devices inside odd-shaped rooms.
+export function insidePoint(poly, x, z) {
+  if (pointIn(poly, x, z)) return [x, z];
+  const b = bboxOf(poly); let best = null, bd = Infinity;
+  for (let px = b.x[0] + 0.25; px < b.x[1]; px += 0.25) for (let pz = b.z[0] + 0.25; pz < b.z[1]; pz += 0.25) {
+    if (!pointIn(poly, px, pz)) continue;
+    const d = (px - x) ** 2 + (pz - z) ** 2; if (d < bd) { bd = d; best = [px, pz]; }
+  }
+  return best || [x, z];
+}
+// Do two rooms on the same floor share floor space? (Sampled on a 25 cm grid, so any shape works.)
+export function roomsOverlap(a, b) {
+  const x0 = Math.max(a.x[0], b.x[0]), x1 = Math.min(a.x[1], b.x[1]), z0 = Math.max(a.z[0], b.z[0]), z1 = Math.min(a.z[1], b.z[1]);
+  if (x1 - x0 <= 0.01 || z1 - z0 <= 0.01) return false;
+  if (!a.points && !b.points) return true;
+  const pa = roomPoly(a), pb = roomPoly(b);
+  for (let x = x0 + 0.125; x < x1; x += 0.25) for (let z = z0 + 0.125; z < z1; z += 0.25) if (pointIn(pa, x, z) && pointIn(pb, x, z)) return true;
+  return false;
+}
+
+// Stairs for layouts made before stairs could be placed: one flight in each hallway/landing with a floor above.
+function defaultStairs(rooms) {
+  const top = Math.max(0, ...rooms.filter((r) => !typeOf(r.type).outdoor).map((r) => r.floor));
+  return rooms.filter((r) => typeOf(r.type).stairs && r.floor < top).map((r, i) => {
+    const w = r.x[1] - r.x[0], d = r.z[1] - r.z[0];
+    if (d >= w) { const L = Math.max(2, Math.min(4, snap(d - 0.5))); return { key: `stairs_${i + 1}`, floor: r.floor, x: [r.x[0], r.x[0] + 1], z: [r.z[1] - 0.5 - L, r.z[1] - 0.5], dir: "n" }; }
+    const L = Math.max(2, Math.min(4, snap(w - 0.5))); return { key: `stairs_${i + 1}`, floor: r.floor, x: [r.x[0] + 0.5, r.x[0] + 0.5 + L], z: [r.z[0], r.z[0] + 1], dir: "e" };
+  });
+}
+
 // Anything loaded (saved, or from an older version) is cleaned before it is drawn.
 export function cleanLayout(input) {
   if (!input || !Array.isArray(input.rooms)) return null;
@@ -118,10 +165,32 @@ export function cleanLayout(input) {
     if (!r || typeof r !== "object") continue;
     const type = ROOM_TYPES[r.type] ? r.type : "other";
     let key = slug(r.key || type); while (used.has(key)) key = `${key}_x`; used.add(key);
-    const span = (v) => { const a = snap(clampN(v?.[0], -60, 60)), b = snap(clampN(v?.[1], -60, 60)); const lo = Math.min(a, b), hi = Math.max(a, b); return [lo, Math.max(hi, lo + 1)]; };
-    rooms.push({ key, type, label: String(r.label || typeOf(type).label).slice(0, 30), floor: ROOM_TYPES[type]?.outdoor ? 0 : Math.round(clampN(r.floor, 0, MAX_FLOORS - 1)), x: span(r.x), z: span(r.z) });
+    const room = { key, type, label: String(r.label || typeOf(type).label).slice(0, 30), floor: ROOM_TYPES[type]?.outdoor ? 0 : Math.round(clampN(r.floor, 0, MAX_FLOORS - 1)), x: span(r.x), z: span(r.z) };
+    const pts = cleanPoints(r.points);
+    if (pts) { const b = bboxOf(pts); Object.assign(room, { points: pts, x: b.x, z: b.z }); }
+    rooms.push(room);
   }
   if (!rooms.length) return null;
   const floors = Math.max(1, Math.min(MAX_FLOORS, Math.max(Number(input.floors) || 1, ...rooms.map((r) => r.floor + 1))));
-  return { version: 1, floors, rooms };
+  // Stairs need a floor above them to go up to.
+  const stairs = (Array.isArray(input.stairs) ? input.stairs : defaultStairs(rooms)).slice(0, MAX_STAIRS).filter((s) => s && typeof s === "object" && Math.round(Number(s.floor) || 0) < floors - 1).map((s, i) => ({
+    key: `stairs_${i + 1}`, floor: Math.round(clampN(s.floor, 0, floors - 2)), x: span(s.x), z: span(s.z), dir: ["n", "s", "e", "w"].includes(s.dir) ? s.dir : "n"
+  }));
+  return { version: 1, floors, rooms, stairs };
 }
+const span = (v) => { const a = snap(clampN(v?.[0], -60, 60)), b = snap(clampN(v?.[1], -60, 60)); const lo = Math.min(a, b), hi = Math.max(a, b); return [lo, Math.max(hi, lo + 1)]; };
+// Points: snapped to the grid, repeats dropped, at least three corners that enclose some area.
+function cleanPoints(points) {
+  if (!Array.isArray(points)) return null;
+  const pts = [];
+  for (const p of points.slice(0, MAX_POINTS)) {
+    if (!Array.isArray(p)) continue;
+    const q = [snap(clampN(p[0], -60, 60)), snap(clampN(p[1], -60, 60))], last = pts[pts.length - 1];
+    if (!last || last[0] !== q[0] || last[1] !== q[1]) pts.push(q);
+  }
+  if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+  if (pts.length < 3) return null;
+  let area = 0; for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
+  return Math.abs(area) / 2 >= 0.5 ? pts : null;
+}
+export const DEFAULT_LAYOUT = cleanLayout(TEMPLATES[3].layout);

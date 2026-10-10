@@ -8,7 +8,7 @@
 //
 // readModel() (houseMap.js) reads the result exactly as it reads a GLB made in Blender.
 import * as THREE from "three";
-import { typeOf } from "./houseLayout.js";
+import { insidePoint, roomPoly, typeOf } from "./houseLayout.js";
 
 export const STOREY = 3, CEIL = 2.7;
 const devHeight = { ceiling: CEIL - 0.08, pendant: CEIL - 0.6, lamp: 0.75, tv: 1.2, speaker: 0.9, blinds: 1.6, thermostat: 1.5, strip: 0.3, door: 1.0, sensor: 2.2, appliance: 1.0, plug: 0.35, cabinet: 1.2, fan: CEIL - 0.1, camera: 2.4 };
@@ -23,6 +23,12 @@ export function buildHouse(layout) {
   const cyl = (name, r, h, x, y, z, parent, data, segs = 16) => {
     const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, segs), mat);
     m.name = name; m.position.set(x, y, z); if (data) m.userData = data; parent.add(m); return m;
+  };
+  // A flat shape (room outline) extruded upwards from y, for odd-shaped rooms and their slabs.
+  const prism = (name, pts, h, y, parent, data) => {
+    const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+    const m = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: Math.max(h, 0.01), bevelEnabled: false }), mat);
+    m.name = name; m.rotation.x = -Math.PI / 2; m.position.y = y; if (data) m.userData = data; parent.add(m); return m;
   };
   const shell = new THREE.Group(); shell.name = "Structure"; house.add(shell);
   const struct = (floor, roof = false) => ({ role: "structure", floor, roof });
@@ -39,8 +45,10 @@ export function buildHouse(layout) {
     house.add(g);
     const w = r.x[1] - r.x[0], d = r.z[1] - r.z[0], y0 = r.floor * STOREY, h = outdoor ? 0.04 : CEIL;
     const cx = (r.x[0] + r.x[1]) / 2, cz = (r.z[0] + r.z[1]) / 2;
-    box(`${r.key}_room`, w, h, d, cx, y0 + h / 2, cz, g, { role: "room" });
-    const at = (fx, fz) => [r.x[0] + w * fx, r.z[0] + d * fz];
+    const poly = roomPoly(r);
+    if (r.points) prism(`${r.key}_room`, r.points, h, y0, g, { role: "room" });
+    else box(`${r.key}_room`, w, h, d, cx, y0 + h / 2, cz, g, { role: "room" });
+    const at = (fx, fz) => (r.points ? insidePoint(poly, r.x[0] + w * fx, r.z[0] + d * fz) : [r.x[0] + w * fx, r.z[0] + d * fz]);
     const garage = r.type === "garage";
     for (const [slot, fx, fz, kind] of t.dev) {
       const [x, z] = at(fx, fz), y = y0 + (outdoor ? (kind === "camera" ? 2.4 : 0.5) : devHeight[kind]), data = { role: "device", slot, kind }, name = `${r.key}_dev_${slot}`;
@@ -58,29 +66,30 @@ export function buildHouse(layout) {
       else box(`${r.key}_furn_${name}`, Math.min(fw, w * 0.95), fh, Math.min(fd, d * 0.95), x, y0 + fh / 2, z, g, data);
     }
     if (outdoor) {
-      // A low fence round the garden, open on the side that meets the house.
-      const touches = (side) => indoor.some((o) => o.floor === 0 && (side === "n" ? Math.abs(o.z[1] - r.z[0]) < 1.2 : side === "s" ? Math.abs(o.z[0] - r.z[1]) < 1.2 : side === "w" ? Math.abs(o.x[1] - r.x[0]) < 1.2 : Math.abs(o.x[0] - r.x[1]) < 1.2)
-        && (side === "n" || side === "s" ? o.x[1] > r.x[0] && o.x[0] < r.x[1] : o.z[1] > r.z[0] && o.z[0] < r.z[1]));
-      if (r.type === "garden") {
-        if (!touches("n")) box(`Structure_fence_${r.key}_n`, w, 1.1, 0.05, cx, 0.55, r.z[0], shell, struct(0));
-        if (!touches("s")) box(`Structure_fence_${r.key}_s`, w, 1.1, 0.05, cx, 0.55, r.z[1], shell, struct(0));
-        if (!touches("w")) box(`Structure_fence_${r.key}_w`, 0.05, 1.1, d, r.x[0], 0.55, cz, shell, struct(0));
-        if (!touches("e")) box(`Structure_fence_${r.key}_e`, 0.05, 1.1, d, r.x[1], 0.55, cz, shell, struct(0));
-      }
+      // A low fence along the garden's edges, left open where it meets the house.
+      if (r.type === "garden") poly.forEach(([x1, z1], i) => {
+        const [x2, z2] = poly[(i + 1) % poly.length], mx = (x1 + x2) / 2, mz = (z1 + z2) / 2, len = Math.hypot(x2 - x1, z2 - z1);
+        if (indoor.some((o) => o.floor === 0 && mx > o.x[0] - 1.2 && mx < o.x[1] + 1.2 && mz > o.z[0] - 1.2 && mz < o.z[1] + 1.2)) return;
+        box(`Structure_fence_${r.key}_${i}`, len, 1.1, 0.05, mx, 0.55, mz, shell, struct(0)).rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+      });
       continue;
     }
     // Slab under every room, and a flat roof on rooms with nothing built above them (a garage, an extension).
-    box(`Structure_slab_${r.key}`, w + 0.1, 0.12, d + 0.1, cx, y0 - 0.06, cz, shell, struct(r.floor));
+    if (r.points) prism(`Structure_slab_${r.key}`, r.points, 0.12, y0 - 0.12, shell, struct(r.floor));
+    else box(`Structure_slab_${r.key}`, w + 0.1, 0.12, d + 0.1, cx, y0 - 0.06, cz, shell, struct(r.floor));
     const above = bboxOf(indoor.filter((o) => o.floor === r.floor + 1));
     if (r.floor < top && !inside(r, above)) box(`Structure_flatroof_${r.key}`, w + 0.2, 0.1, d + 0.2, cx, y0 + CEIL + 0.05, cz, shell, struct(r.floor, true));
-    // Stairs up from each hallway/landing that has a floor above it.
-    if (t.stairs && r.floor < top) {
-      const along = d >= w, len = (along ? d : w) - 0.4, steps = 14, run = Math.min(0.28, len / steps);
-      for (let i = 0; i < steps; i++) {
-        const y = y0 + 0.1 + i * (STOREY / steps);
-        if (along) box(`Structure_stair_${r.key}_${i}`, Math.min(1.0, w * 0.45), 0.2, 0.3, r.x[0] + Math.min(0.6, w * 0.25), y, r.z[1] - 0.4 - i * run, shell, struct(r.floor));
-        else box(`Structure_stair_${r.key}_${i}`, 0.3, 0.2, Math.min(1.0, d * 0.45), r.x[0] + 0.4 + i * run, y, r.z[0] + Math.min(0.6, d * 0.25), shell, struct(r.floor));
-      }
+  }
+
+  // Stairs: a flight of 14 steps across the placed footprint, rising towards dir to the floor above.
+  for (const st of layout.stairs || []) {
+    const steps = 14, alongZ = st.dir === "n" || st.dir === "s", len = alongZ ? st.z[1] - st.z[0] : st.x[1] - st.x[0], run = len / steps;
+    const width = alongZ ? st.x[1] - st.x[0] : st.z[1] - st.z[0], y0 = st.floor * STOREY;
+    for (let i = 0; i < steps; i++) {
+      const y = y0 + 0.1 + i * (STOREY / steps), off = (i + 0.5) * run;
+      const x = st.dir === "e" ? st.x[0] + off : st.dir === "w" ? st.x[1] - off : (st.x[0] + st.x[1]) / 2;
+      const z = st.dir === "s" ? st.z[0] + off : st.dir === "n" ? st.z[1] - off : (st.z[0] + st.z[1]) / 2;
+      box(`Structure_stair_${st.key}_${i}`, alongZ ? width : run * 1.05, 0.2, alongZ ? run * 1.05 : width, x, y, z, shell, struct(st.floor));
     }
   }
 
