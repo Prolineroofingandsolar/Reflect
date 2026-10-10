@@ -3,7 +3,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { AnimatePresence } from "framer-motion";
-import { House3D, useHouseModel } from "./components/House3D.jsx";
+import { House3D, useGlbModel, useLayoutModel } from "./components/House3D.jsx";
+import { HouseBuilder } from "./components/HouseBuilder.jsx";
+import { DEFAULT_LAYOUT, cleanLayout, floorName } from "./houseLayout.js";
 import { RoomPanel } from "./components/RoomPanel.jsx";
 import { CameraPanel, FloorSwitch, HomeStatus, Indicators, Scenes, Toast, VoiceAssistant } from "./components/Hud.jsx";
 import { bridge, useEntities } from "./bridge.js";
@@ -22,8 +24,12 @@ function reducer(s, a) {
   }
 }
 
-function Scene3D({ config, entities, view, dispatch, effects, onApi }) {
-  const model = useHouseModel(`smarthome/${config.model || "models/house.glb"}`);
+const LAYOUT_KEY = "reflect-house-layout";
+function cachedLayout() { try { return cleanLayout(JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null")); } catch { return null; } }
+
+function GlbScene(props) { return <SceneBody {...props} model={useGlbModel(`smarthome/${props.config.model}`)} />; }
+function LayoutScene(props) { return <SceneBody {...props} model={useLayoutModel(props.layout)} />; }
+function SceneBody({ model, config, entities, view, dispatch, effects, onApi }) {
   const placements = useMemo(() => placeEntities(entities, model, config), [entities, model, config]);
   const rooms = useMemo(() => {
     const by = new Map(model.rooms.map((r) => [r.key, []]));
@@ -44,10 +50,27 @@ export function App({ active }) {
   const [effects, setEffects] = useState({ beams: [], waves: [], pulses: {} });
   const [toast, setToast] = useState("");
   const [scenesOpen, setScenesOpen] = useState(false);
+  // The house layout: saved with the account (and cached on this mirror); a sample house until one is saved.
+  const [layout, setLayout] = useState(() => cachedLayout() || DEFAULT_LAYOUT);
+  const [layoutSaved, setLayoutSaved] = useState(() => Boolean(cachedLayout()));
+  const [building, setBuilding] = useState(false);
   const world = useRef({ model: null, placements: new Map() });
   const onApi = useCallback((w) => { world.current = w; }, []);
 
   useEffect(() => { fetch("smarthome/house-map.json").then((r) => r.json()).then(setConfig).catch(() => setConfig({ rooms: {}, scenes: [], cameras: [] })); }, []);
+  useEffect(() => {
+    fetch("/api/house-layout", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      const l = cleanLayout(d?.layout);
+      if (l) { setLayout(l); setLayoutSaved(true); try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {} }
+    }).catch(() => {});
+  }, []);
+  const saveLayout = useCallback((l) => {
+    setLayout(l); setLayoutSaved(true); setBuilding(false); dispatch({ type: "house" });
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch {}
+    fetch("/api/house-layout", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ layout: l }) })
+      .then((r) => { if (!r.ok) setToast("Saved on this mirror. Sign in to keep it with your account."); }).catch(() => setToast("Saved on this mirror only."));
+  }, []);
+  const areas = useMemo(() => [...new Set(entities.map((e) => e.area).filter(Boolean))].sort(), [entities]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 4000); return () => clearTimeout(t); }, [toast]);
 
   // Every Home Assistant command (touch or voice) sends a beam to what it changed.
@@ -93,8 +116,11 @@ export function App({ active }) {
       let targets;
       if (a.domain) targets = entities.filter((e) => e.domain === a.domain);
       else {
-        const roomKeys = (a.rooms || []).includes("*") ? world.current.model.rooms.map((r) => r.key) : a.rooms || [];
-        targets = roomKeys.filter((r) => !(a.except || []).includes(r)).flatMap((r) => { const list = byRoom(r).filter((e) => e.domain === domain); if (list.length) touched.add(r); return list; });
+        // Scene rooms name a room key or a room type ("bedroom" covers every bedroom).
+        const all = world.current.model.rooms, match = (list) => all.filter((r) => (list || []).includes("*") || (list || []).includes(r.key) || (list || []).includes(r.type)).map((r) => r.key);
+        const skip = new Set(all.filter((r) => (a.except || []).includes(r.key) || (a.except || []).includes(r.type)).map((r) => r.key));
+        const roomKeys = match(a.rooms);
+        targets = roomKeys.filter((r) => !skip.has(r)).flatMap((r) => { const list = byRoom(r).filter((e) => e.domain === domain); if (list.length) touched.add(r); return list; });
       }
       if (!targets.length) continue;
       const data = { ...(a.data || {}) };
@@ -110,7 +136,12 @@ export function App({ active }) {
     const api = window.ReflectHome3D;
     api.showRoom = (name) => { const r = findRoom(name); if (!r) throw new Error(`There's no room called ${name}.`); bridge.showView("house3d"); dispatch({ type: "room", room: r.key }); return r.label; };
     api.showHouse = () => { bridge.showView("house3d"); dispatch({ type: "house" }); };
-    api.showFloor = (floor) => { bridge.showView("house3d"); dispatch({ type: "floor", floor: /down|ground|0/.test(String(floor)) ? 0 : /up|first|1/.test(String(floor)) ? 1 : "all" }); };
+    api.showFloor = (floor) => {
+      const n = world.current.model?.floors || 1, f = String(floor).toLowerCase();
+      const pick = /down|ground|^0$/.test(f) ? 0 : /second|^2$/.test(f) ? 2 : /third|^3$/.test(f) ? 3 : /top|attic|loft/.test(f) ? n - 1 : /up|first|^1$/.test(f) ? 1 : "all";
+      bridge.showView("house3d"); dispatch({ type: "floor", floor: typeof pick === "number" && pick < n ? pick : "all" });
+    };
+    api.editHouse = () => { bridge.showView("house3d"); setBuilding(true); };
     api.showCamera = (name) => {
       if (!cameras.length) throw new Error("No cameras are set up in Home Assistant.");
       const n = norm(name || "");
@@ -121,8 +152,8 @@ export function App({ active }) {
     api.runScene = (key) => runScene(key);
     api.describe = () => {
       const m = world.current.model; if (!m) return [];
-      const lines = [`3D house rooms (key = name): ${m.rooms.map((r) => `${r.key} = ${r.label}${r.floor ? " (upstairs)" : ""}`).join(", ")}.`];
-      lines.push(`3D house view: ${view.mode === "room" ? `focused on ${view.room}` : view.mode === "camera" ? `showing camera ${view.camera}` : view.floor === "all" ? "whole house" : view.floor ? "upstairs" : "downstairs"}.`);
+      const lines = [`3D house rooms (key = name): ${m.rooms.map((r) => `${r.key} = ${r.label}${m.floors > 1 && !r.outdoor ? ` (${floorName(r.floor, m.floors).toLowerCase()})` : ""}`).join(", ")}.`];
+      lines.push(`3D house view: ${view.mode === "room" ? `focused on ${view.room}` : view.mode === "camera" ? `showing camera ${view.camera}` : view.floor === "all" ? "whole house" : floorName(view.floor, m.floors).toLowerCase()}.`);
       if (config?.scenes?.length) lines.push(`Scenes: ${config.scenes.map((s) => `${s.key} (${s.label})`).join(", ")}.`);
       lines.push(cameras.length ? `Cameras: ${cameras.map((c) => `${c.id} (${c.label})`).join(", ")}.` : "Cameras: none.");
       return lines;
@@ -141,14 +172,17 @@ export function App({ active }) {
     <div className={`h3-app is-${view.mode}`}>
       <Canvas className="h3-canvas" frameloop={active ? "always" : "never"} dpr={[1, 1.5]} gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
         camera={{ fov: 38, near: 0.1, far: 400, position: [20, 16, 26] }} onPointerMissed={() => view.mode === "room" && dispatch({ type: "house" })}>
-        {config && <Suspense fallback={null}><Scene3D config={config} entities={entities} view={view} dispatch={dispatch} effects={effects} onApi={onApi} /></Suspense>}
+        {config && <Suspense fallback={null}>{config.model
+          ? <GlbScene config={config} entities={entities} view={view} dispatch={dispatch} effects={effects} onApi={onApi} />
+          : <LayoutScene layout={layout} config={config} entities={entities} view={view} dispatch={dispatch} effects={effects} onApi={onApi} />}</Suspense>}
       </Canvas>
       <HomeStatus status={status} weather={bridge.weather()} live={bridge.live()} connected={connected} />
       <AnimatePresence>
-        {view.mode === "room" && room && <RoomPanel key={room.key} room={room} entities={roomEntities} device={view.device}
+        {view.mode === "room" && room && <RoomPanel key={room.key} room={room} floors={world.current.model?.floors || 1} entities={roomEntities} device={view.device}
           onSelectDevice={(device) => dispatch({ type: "device", device })} onClose={() => dispatch({ type: "house" })} onError={setToast} />}
         {view.mode === "camera" && <CameraPanel key="cam" cameras={cameras} current={view.camera} onPick={(camera) => dispatch({ type: "camera", camera })} onClose={() => dispatch({ type: "house" })} />}
       </AnimatePresence>
+      {!config?.model && <button type="button" className="h3-pill h3-edit-house" onClick={() => setBuilding(true)}>Edit house</button>}
       <FloorSwitch floors={world.current.model?.floors || 2} view={view} onHouse={() => dispatch({ type: "house" })} onFloor={(floor) => dispatch({ type: "floor", floor })} />
       <div className="h3-bottom">
         <VoiceAssistant />
@@ -164,6 +198,13 @@ export function App({ active }) {
           <button type="button" className="h3-pill" onClick={() => bridge.connect()}>Connect</button>
         </div>
       )}
+      {connected && !layoutSaved && !config?.model && !building && view.mode === "house" && (
+        <div className="h3-connect">
+          <p>This is a sample house. Make it look like yours.</p>
+          <button type="button" className="h3-pill" onClick={() => setBuilding(true)}>Build my house</button>
+        </div>
+      )}
+      <AnimatePresence>{building && <HouseBuilder key="builder" layout={layout} areas={areas} onSave={saveLayout} onCancel={() => setBuilding(false)} />}</AnimatePresence>
       <Toast message={toast} />
     </div>
   );

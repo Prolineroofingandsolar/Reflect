@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { holo } from "./RoomPanel.jsx";
+import { floorName } from "../houseLayout.js";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -124,8 +125,9 @@ export function FloorSwitch({ floors, view, onHouse, onFloor }) {
   return (
     <div className="h3-floors" role="group" aria-label="Floors">
       <button type="button" className={cur === "all" ? "is-active" : ""} onClick={onHouse}>House</button>
-      <button type="button" className={cur === 1 ? "is-active" : ""} onClick={() => onFloor(1)}>Upstairs</button>
-      <button type="button" className={cur === 0 ? "is-active" : ""} onClick={() => onFloor(0)}>Downstairs</button>
+      {Array.from({ length: floors }, (_, i) => floors - 1 - i).map((f) => (
+        <button key={f} type="button" className={cur === f ? "is-active" : ""} onClick={() => onFloor(f)}>{floorName(f, floors)}</button>
+      ))}
     </div>
   );
 }

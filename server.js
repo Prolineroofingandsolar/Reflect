@@ -352,6 +352,22 @@ async function api(req, res, url) {
     return json(res, 200, session.account.data);
   }
 
+  // The house builder's layout (rooms, floors, sizes) for the 3D House screen. The mirror cleans it again on load.
+  if (url.pathname === "/api/house-layout" && req.method === "GET") {
+    return json(res, 200, { layout: session.account.houseLayout || null });
+  }
+  if (url.pathname === "/api/house-layout" && req.method === "PUT") {
+    const input = await body(req);
+    const layout = input.layout, num = (v, fallback) => (Number.isFinite(Number(v)) ? Math.max(-60, Math.min(60, Number(v))) : fallback);
+    if (!layout || !Array.isArray(layout.rooms) || layout.rooms.length > 40 || JSON.stringify(layout).length > 20000) return json(res, 400, { error: "That house layout isn't valid." });
+    session.account.houseLayout = { version: 1, floors: Math.max(1, Math.min(4, Number(layout.floors) || 1)), rooms: layout.rooms.map((r) => ({
+      key: String(r.key || "").slice(0, 40), type: String(r.type || "other").slice(0, 30), label: String(r.label || "").slice(0, 30), floor: Math.max(0, Math.min(3, Math.round(Number(r.floor) || 0))),
+      x: [num(r.x?.[0], 0), num(r.x?.[1], 1)], z: [num(r.z?.[0], 0), num(r.z?.[1], 1)]
+    })) };
+    writeState(session.state);
+    return json(res, 200, { layout: session.account.houseLayout });
+  }
+
   // Home Assistant uses a user-pasted long-lived access token rather than OAuth.
   if (url.pathname === "/api/integrations/homeAssistant/config" && req.method === "POST") {
     const input = await body(req);

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { bridge } from "../bridge.js";
 import { isOn } from "../home.js";
+import { floorName } from "../houseLayout.js";
 import { ClimateControl, CoverControl, DeviceRow, LightControl, MediaControl } from "./Controls.jsx";
 
 export const holo = {
@@ -13,7 +14,7 @@ export const holo = {
 
 function Section({ title, children }) { return <section className="h3-section"><h3>{title}</h3>{children}</section>; }
 
-export function RoomPanel({ room, entities, device, onSelectDevice, onClose, onError }) {
+export function RoomPanel({ room, floors, entities, device, onSelectDevice, onClose, onError }) {
   const by = (fn) => entities.filter(fn);
   const lights = by((e) => e.domain === "light");
   const climate = by((e) => e.domain === "climate");
@@ -25,7 +26,7 @@ export function RoomPanel({ room, entities, device, onSelectDevice, onClose, onE
   return (
     <motion.aside className="h3-panel h3-room-panel" {...holo} aria-label={`${room.label} controls`}>
       <header className="h3-panel-head">
-        <div><p className="h3-eyebrow">{room.floor ? "Upstairs" : room.outdoor ? "Outside" : "Downstairs"}</p><h2>{room.label}</h2>
+        <div><p className="h3-eyebrow">{room.outdoor ? "Outside" : floors > 1 ? floorName(room.floor, floors) : "Home"}</p><h2>{room.label}</h2>
           <p className="h3-sub">{lights.length ? `${lit} of ${lights.length} light${lights.length === 1 ? "" : "s"} on` : `${entities.length} device${entities.length === 1 ? "" : "s"}`}</p></div>
         <button type="button" className="h3-close" onClick={onClose} aria-label="Back to the whole house">✕</button>
       </header>

@@ -17,7 +17,7 @@ const api = (window.ReflectHome3D = {
     if (root) root.render(<App active={active} />);
   },
   ensure() { if (!root) { const el = document.getElementById("house3dRoot"); if (el) { root = createRoot(el); root.render(<App active={active} />); } } },
-  showRoom: notReady, showHouse: notReady, showFloor: notReady, showCamera: notReady, closeCamera: () => {}, runScene: notReady,
+  showRoom: notReady, showHouse: notReady, showFloor: notReady, showCamera: notReady, closeCamera: () => {}, runScene: notReady, editHouse: notReady,
   describe: () => []
 });
 // If the mirror opened straight onto the 3D House (it can be the default screen), start right away.
