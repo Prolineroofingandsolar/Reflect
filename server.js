@@ -39,7 +39,7 @@ const assistantConfig = {
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
   // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
   address: String(localConfig.assistantAddress ?? "sir").trim(),
-  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-sonnet-5-5",
+  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-haiku-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
