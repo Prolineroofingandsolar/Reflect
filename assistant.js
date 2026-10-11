@@ -7,7 +7,7 @@
 (() => {
   const A = {
     status: null, state: "idle", open: false, busy: false,
-    conversation: [], lastTurn: 0,
+    conversation: [], lastTurn: 0, convStart: 0, memory: null, lastAck: -1,
     recognition: null, srPaused: false, srUnavailable: false, srBlocked: false, awaitingCommand: false, commandTimer: null,
     audioCtx: null, micAnalyser: null, outAnalyser: null, micBuffer: null, outBuffer: null,
     level: 0, speakPulse: 0, currentAudio: null, voice: null, closeTimer: null, recording: false,
@@ -210,8 +210,41 @@
     const shown = Object.entries(profile.widgets || {}).filter(([, w]) => w.visible).map(([id]) => id);
     lines.push(`Home widgets showing: ${shown.join(", ") || "none"}.`);
     lines.push(`Display: brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}.`);
+    const memory = await loadMemory();
+    lines.push(memory.facts.length ? "What you've learned about them:" : "What you've learned about them: nothing yet.");
+    memory.facts.forEach((f) => lines.push(`- ${f}`));
+    // Only exchanges from before this conversation; the ones in it are already in the history.
+    const earlier = memory.recent.filter((r) => r.at < A.convStart).slice(-8);
+    if (earlier.length) {
+      lines.push("Earlier conversations (oldest first):");
+      earlier.forEach((r) => lines.push(`- ${new Date(r.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}: they said "${r.q}"; you said "${r.a}"`));
+    }
     return lines.join("\n");
   }
+
+  // ---------- Memory ----------
+  // What Jarvis has learned and the last few exchanges live in the person's account on the server,
+  // so they survive restarts and updates.
+  // A copy is also kept in the browser, for when nobody is signed in.
+  async function loadMemory() {
+    if (A.memory) return A.memory;
+    let d = null;
+    try { const r = await fetch("/api/jarvis-memory", { credentials: "same-origin" }); if (r.ok) d = await r.json(); } catch {}
+    if (!d) { try { d = JSON.parse(localStorage.getItem("reflect-jarvis-memory") || "null"); } catch {} }
+    A.memory = { facts: Array.isArray(d?.facts) ? d.facts : [], recent: Array.isArray(d?.recent) ? d.recent : [] };
+    return A.memory;
+  }
+  function saveMemory() {
+    if (!A.memory) return;
+    try { localStorage.setItem("reflect-jarvis-memory", JSON.stringify(A.memory)); } catch {}
+    fetch("/api/jarvis-memory", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(A.memory) }).catch(() => {});
+  }
+  function rememberExchange(q, a) {
+    if (!A.memory || !q || !a) return;
+    A.memory.recent = [...A.memory.recent, { q: q.slice(0, 300), a: a.slice(0, 400), at: Date.now() }].slice(-12);
+    saveMemory();
+  }
+  const words = (t) => new Set(String(t).toLowerCase().match(/[a-z0-9']+/g) || []);
 
   // ---------- Tools ----------
   // Opens the 3D House screen and waits (briefly) for the house to load before Jarvis drives it.
@@ -382,6 +415,22 @@
       try { localStorage.setItem(voiceKey, next.name); } catch {}
       return `Voice changed to ${next.name}, ${voices.indexOf(next) + 1} of ${voices.length}: ${voices.map((v) => v.name).join(", ")}.`;
     }
+    if (tool === "remember" || tool === "forget") {
+      const memory = await loadMemory(), fact = String(input.fact || "").replace(/\s+/g, " ").trim().slice(0, 200);
+      if (!fact) throw new Error("Nothing to remember.");
+      const want = words(fact), score = (f) => { const have = words(f); let n = 0; want.forEach((w) => { if (have.has(w)) n++; }); return n / Math.max(want.size, have.size, 1); };
+      if (tool === "remember") {
+        if (memory.facts.some((f) => f.toLowerCase() === fact.toLowerCase())) return "Already known.";
+        memory.facts = [...memory.facts, fact].slice(-80);
+        saveMemory();
+        return `Remembered: ${fact}`;
+      }
+      const best = memory.facts.map((f) => [f, score(f)]).sort((a, b) => b[1] - a[1])[0];
+      if (!best || best[1] < 0.3) throw new Error("I don't have that saved.");
+      memory.facts = memory.facts.filter((f) => f !== best[0]);
+      saveMemory();
+      return `Forgot: ${best[0]}`;
+    }
     if (tool === "set_display") {
       if (Number.isFinite(input.brightness)) profile.brightness = Math.max(30, Math.min(100, Math.round(input.brightness)));
       if (typeof input.night_mode === "boolean") profile.nightMode = input.night_mode;
@@ -483,6 +532,7 @@
     A.ackTimer = setTimeout(() => { if (live() && !talk) playAck(); }, 650);
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
+    if (!A.conversation.length) A.convStart = Date.now();
     let reply = "", talk = null;
     const turn = ++A.turn, live = () => A.turn === turn;
     // Jarvis starts speaking as soon as his first sentence has arrived, and keeps going sentence by
@@ -522,6 +572,7 @@
       const last = A.conversation.at(-1);
       if (last && (last.role === "user" || last.content.some((b) => b.type === "tool_use"))) A.conversation = [];
       A.lastTurn = Date.now();
+      rememberExchange(text, reply);
     } catch (error) {
       A.conversation = [];
       reply = error.message;
@@ -830,7 +881,11 @@
   function playAck() {
     const ac = audioContext();
     if (!ac || ac.state !== "running" || !A.acks?.length || A.ackPlaying) return;
-    const clip = A.acks[Math.floor(Math.random() * A.acks.length)];
+    // A different line from last time, so he doesn't sound like a recording.
+    let pick = Math.floor(Math.random() * A.acks.length);
+    if (A.acks.length > 1 && pick === A.lastAck) pick = (pick + 1 + Math.floor(Math.random() * (A.acks.length - 1))) % A.acks.length;
+    A.lastAck = pick;
+    const clip = A.acks[pick];
     const source = ac.createBufferSource();
     source.buffer = clip; source.connect(ac.destination);
     A.ackSource = source;

@@ -372,6 +372,21 @@ async function api(req, res, url) {
     return json(res, 200, { layout: session.account.houseLayout });
   }
 
+  // Jarvis's long-term memory: facts he's learned about the person, and the last few things said,
+  // so he can build on earlier conversations instead of repeating himself.
+  if (url.pathname === "/api/jarvis-memory" && req.method === "GET") {
+    return json(res, 200, session.account.jarvisMemory || { facts: [], recent: [] });
+  }
+  if (url.pathname === "/api/jarvis-memory" && req.method === "PUT") {
+    const input = await body(req), text = (v, n) => String(v || "").replace(/\s+/g, " ").trim().slice(0, n);
+    session.account.jarvisMemory = {
+      facts: (Array.isArray(input.facts) ? input.facts : []).map((f) => text(f, 200)).filter(Boolean).slice(-80),
+      recent: (Array.isArray(input.recent) ? input.recent : []).filter((r) => r && typeof r === "object").map((r) => ({ q: text(r.q, 300), a: text(r.a, 400), at: Number(r.at) || 0 })).filter((r) => r.q || r.a).slice(-12)
+    };
+    writeState(session.state);
+    return json(res, 200, session.account.jarvisMemory);
+  }
+
   // Home Assistant uses a user-pasted long-lived access token rather than OAuth.
   if (url.pathname === "/api/integrations/homeAssistant/config" && req.method === "POST") {
     const input = await body(req);
@@ -663,7 +678,11 @@ Each user turn starts with a [Mirror context] block holding the live time, weath
 
 When the context says "First conversation today: yes", you may open with a few words of greeting for the time of day, then answer what they said. Give a briefing (weather and what's next) only when they ask for one, such as "good morning" on its own or "what's today looking like".
 
-Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. The mirror has a 3D House screen (show_screen house): when someone asks to see a room ("show me the bedroom"), the house, a floor ("go downstairs") or a camera ("show the front door camera"), use show_room, show_house or show_camera; when they control a room's devices, also show that room. For "goodnight", "I'm leaving", "movie night" and similar, use run_scene with a scene key from the context. For "what's on", list the lights and devices that are on, briefly, by room. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
+Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. The mirror has a 3D House screen (show_screen house): when someone asks to see a room ("show me the bedroom"), the house, a floor ("go downstairs") or a camera ("show the front door camera"), use show_room, show_house or show_camera; when they control a room's devices, also show that room. For "goodnight", "I'm leaving", "movie night" and similar, use run_scene with a scene key from the context. For "what's on", list the lights and devices that are on, briefly, by room. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.
+
+You remember the person between conversations. The context lists "What you've learned about them" and "Earlier conversations". Use them naturally, the way a butler who has known someone for years would, without announcing that you remember. Whenever they tell you something worth keeping (their name, family, work, routines, likes and dislikes, plans, or how they want you to behave), call remember at once with one short sentence, and carry on answering; say nothing about saving it unless they asked you to remember. If they correct something you know, forget the old fact and remember the new one. If they ask you to forget something, use forget.
+
+Never repeat yourself: vary how you open and phrase replies, and don't reuse a line, joke or greeting from "Earlier conversations".`;
 }
 
 const assistantTools = [
@@ -687,6 +706,8 @@ const assistantTools = [
   { name: "change_voice", description: "Change the voice you speak with, when asked. Without a name, moves to the next available voice; with a name, picks the voice whose name contains it. Tell the person the new voice's name in a few words.", input_schema: { type: "object", properties: { name: { type: "string", description: "Part of a voice name, such as Daniel or Jamie. Leave out to try the next voice." } }, additionalProperties: false } },
   { name: "set_display", description: "Adjust the mirror display: brightness from 30 to 100, and night mode on or off.", input_schema: { type: "object", properties: { brightness: { type: "integer", minimum: 30, maximum: 100 }, night_mode: { type: "boolean" } }, additionalProperties: false } },
   // Runs on Anthropic's servers: news, sport, opening times, prices and anything else live.
+  { name: "remember", description: "Save a lasting fact about the person or how they want you to behave, as one short sentence, e.g. \"Will takes his coffee black\" or \"Will prefers short answers\". Don't save things already in the list.", input_schema: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"], additionalProperties: false } },
+  { name: "forget", description: "Remove a saved fact that is wrong, out of date, or that they asked you to forget. Give the fact's wording, or close to it.", input_schema: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"], additionalProperties: false } },
   { type: "web_search_20260209", name: "web_search", max_uses: 3 }
 ];
 
