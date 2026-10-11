@@ -169,7 +169,7 @@
     if (!w?.current) return ["Weather: not loaded yet."];
     const c = w.current, d = w.daily || {};
     const lines = [`Weather in ${profile.weather.place} now: ${Math.round(c.temperature_2m)}°C (feels like ${Math.round(c.apparent_temperature)}°C), ${weatherLabel(c.weather_code).toLowerCase()}, wind ${Math.round(c.wind_speed_10m)} km/h.`];
-    (d.time || []).slice(0, 3).forEach((day, i) => {
+    (d.time || []).slice(0, 2).forEach((day, i) => {
       lines.push(`${i === 0 ? "Today" : i === 1 ? "Tomorrow" : day}: ${weatherLabel(d.weather_code[i]).toLowerCase()}, high ${Math.round(d.temperature_2m_max[i])}°C, low ${Math.round(d.temperature_2m_min[i])}°C, ${d.precipitation_probability_max?.[i] ?? 0}% chance of rain${i === 0 && d.sunset?.[0] ? `, sunset ${String(d.sunset[0]).slice(11, 16)}` : ""}.`);
     });
     return lines;
@@ -492,6 +492,7 @@
     });
     try {
       A.conversation.push({ role: "user", content: [{ type: "text", text: `[Mirror context]\n${await mirrorContext()}\n\nThey said: ${text}` }] });
+      markBriefed(); // only the first question of the day counts as the first, even if it goes wrong
       let paused = false;
       for (let step = 0; step < 8; step++) {
         const result = await chatStream(A.conversation, (delta) => feed.push(delta));
@@ -518,7 +519,6 @@
       const last = A.conversation.at(-1);
       if (last && (last.role === "user" || last.content.some((b) => b.type === "tool_use"))) A.conversation = [];
       A.lastTurn = Date.now();
-      markBriefed();
     } catch (error) {
       A.conversation = [];
       reply = error.message;
@@ -895,7 +895,7 @@
     if (isFinal && text) A.heardFinal = `${A.heardFinal} ${text}`.trim();
     const sofar = isFinal ? A.heardFinal : `${A.heardFinal} ${text}`.trim();
     if (sofar) showHeard(sofar);
-    if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 800 : 2200);
+    if (A.heardFinal) A.endTimer = setTimeout(() => { const said = A.heardFinal; A.heardFinal = ""; if (said) ask(said); }, isFinal ? 450 : 1600);
   }
   function keepListening() {
     if (!A.awaitingCommand) return;

@@ -39,7 +39,7 @@ const assistantConfig = {
   anthropicWorkspaceId: String(process.env.ANTHROPIC_WORKSPACE_ID || localConfig.anthropicWorkspaceId || "").trim(),
   // How the assistant addresses you, Jarvis-style. Set "assistantAddress" to "ma'am", a name, or "" to use your name.
   address: String(localConfig.assistantAddress ?? "sir").trim(),
-  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-sonnet-5-5",
+  model: process.env.REFLECT_ASSISTANT_MODEL || localConfig.assistantModel || "claude-haiku-5-5",
   wakeWord: localConfig.assistantWakeWord !== false,
   // Optional: an OpenAI key upgrades the spoken voice and enables server-side speech recognition
   // for browsers without the Web Speech API (Chromium on Raspberry Pi).
@@ -659,9 +659,9 @@ Everything you write is spoken aloud by a text-to-speech voice and shown briefly
 - A touch of dry humour is welcome; never let it get in the way of the answer.
 - ${assistantConfig.address ? `Address the person as "${assistantConfig.address}" now and then, the way the butler addresses Tony Stark; use their name only occasionally.` : "Use the person's name now and then, not in every reply."}
 
-Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. Treat it as what you can see right now and answer from it directly. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
+Each user turn starts with a [Mirror context] block holding the live time, weather, calendar, tasks, music and smart-home devices. It is background you can see, not something to report: answer only what they asked, using only the parts of it that answer that. Never bring up the weather, calendar, tasks or devices unless they asked about them or they change the answer. Text after "They said:" is what the person actually said, transcribed from speech, so allow for misheard words.
 
-When the context says "First conversation today: yes", open with a one-sentence greeting for the time of day that mentions the weather and the next thing on the calendar or task list, then answer what they said.
+When the context says "First conversation today: yes", you may open with a few words of greeting for the time of day, then answer what they said. Give a briefing (weather and what's next) only when they ask for one, such as "good morning" on its own or "what's today looking like".
 
 Use your tools to act on the mirror: change screens, control smart-home devices, control music, add, change, complete or delete tasks, add or delete calendar events, set timers and reminders, change the weather location, show or hide home widgets, and adjust the display. Use web search for anything live or recent the context does not cover, such as news, sport scores, opening times or prices, and give the answer in a sentence or two without reading out sources. When asked to do something, do it and confirm in a few words. If a device or feature in the request is not in the context, say so briefly rather than guessing. Only act on smart-home devices whose entity id appears in the context. The mirror has a 3D House screen (show_screen house): when someone asks to see a room ("show me the bedroom"), the house, a floor ("go downstairs") or a camera ("show the front door camera"), use show_room, show_house or show_camera; when they control a room's devices, also show that room. For "goodnight", "I'm leaving", "movie night" and similar, use run_scene with a scene key from the context. For "what's on", list the lights and devices that are on, briefly, by room. For anything outside what the mirror can do, answer from your own knowledge as a helpful assistant would.`;
 }
@@ -689,6 +689,17 @@ const assistantTools = [
   // Runs on Anthropic's servers: news, sport, opening times, prices and anything else live.
   { type: "web_search_20260209", name: "web_search", max_uses: 3 }
 ];
+
+// What the chosen model needs to answer quickly. Thinking is switched off so Jarvis starts talking straight
+// away (Sonnet 5.5 still thinks between tool calls; Opus can't switch it off, so it keeps low effort).
+// Haiku uses the older web search tool and has no refusal fallback.
+let fastReplies = true;
+function modelOptions(model, fast = true) {
+  const haiku = /haiku/.test(model);
+  const thinking = model === "claude-sonnet-5-5" ? { type: "between_tools" } : /haiku-5-5/.test(model) ? { type: "disabled" } : null;
+  const tools = assistantTools.map((t) => (t.name === "web_search" && haiku ? { ...t, type: "web_search_20250305" } : t));
+  return { tools, ...(thinking && fast ? { thinking } : {}), ...(haiku ? {} : { fallbacks: "default" }) };
+}
 
 function sameOriginRequest(req) {
   // Browsers only allow cross-site requests without a CORS preflight for "simple" content types,
@@ -725,13 +736,23 @@ async function assistantApi(req, res, url) {
     if (!messages.length || messages.length > 60 || messages.some((m) => !m || !["user", "assistant"].includes(m.role) || !Array.isArray(m.content))) return json(res, 400, { error: "Invalid conversation." });
     try {
       const started = Date.now();
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const send = (fast) => fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
+        headers: { "Content-Type": "application/json", "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", ...(/haiku/.test(assistantConfig.model) ? {} : { "anthropic-beta": "server-side-fallback-2026-07-01" }), ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) },
         // The system prompt and tools are the same on every request, so they're cached (the explicit
         // marker), and the growing conversation is cached too (the top-level field). Both make replies quicker.
-        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, fallbacks: "default", cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], tools: assistantTools, messages, ...(input.stream ? { stream: true } : {}) })
+        body: JSON.stringify({ model: assistantConfig.model, max_tokens: 4096, output_config: { effort: "low" }, ...modelOptions(assistantConfig.model, fast), cache_control: { type: "ephemeral" }, system: [{ type: "text", text: assistantSystemPrompt(), cache_control: { type: "ephemeral" } }], messages, ...(input.stream ? { stream: true } : {}) })
       });
+      // If the API ever turns down the quick no-thinking setting, ask again the standard way and stop using it.
+      let response = await send(fastReplies);
+      if (response.status === 400 && fastReplies) {
+        const detail = await response.text().catch(() => "");
+        if (/thinking/i.test(detail)) {
+          console.log(`${assistantConfig.name}: quick replies were refused (${detail.slice(0, 200)}), using standard replies instead.`);
+          fastReplies = false;
+          response = await send(false);
+        } else response = new Response(detail, { status: 400, headers: { "Content-Type": "application/json" } });
+      }
       // Streaming: the reply is passed straight through to the mirror as it's written, so Jarvis
       // can start speaking his first sentence while the rest is still on its way.
       if (input.stream && response.ok && response.body) {
