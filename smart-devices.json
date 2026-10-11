@@ -1,0 +1,33 @@
+{
+  "categories": ["Any brand", "Lights", "Plugs and switches", "Heating", "Speakers and TV", "Security", "Cleaning", "Other"],
+  "brands": [
+    { "id": "matter", "name": "Matter devices", "category": "Any brand", "domain": "matter", "kind": "matter", "blurb": "Anything with the Matter logo: scan the code on the box." },
+    { "id": "homekit", "name": "Apple Home devices", "category": "Any brand", "domain": "homekit_controller", "blurb": "Devices with a HomeKit code, including Tado and Eve." },
+    { "id": "hue", "name": "Philips Hue", "category": "Lights", "domain": "hue", "blurb": "Press the button on the Hue Bridge." },
+    { "id": "lifx", "name": "LIFX", "category": "Lights", "domain": "lifx", "blurb": "Found on your Wi-Fi automatically." },
+    { "id": "nanoleaf", "name": "Nanoleaf", "category": "Lights", "domain": "nanoleaf", "blurb": "Hold the power button for 5 seconds." },
+    { "id": "wled", "name": "WLED LED strips", "category": "Lights", "domain": "wled", "blurb": "Found on your Wi-Fi automatically." },
+    { "id": "wiz", "name": "WiZ", "category": "Lights", "domain": "wiz", "blurb": "Found on your Wi-Fi automatically." },
+    { "id": "govee", "name": "Govee", "category": "Lights", "domain": "govee_light_local", "blurb": "Turn on LAN control in the Govee app first." },
+    { "id": "elgato", "name": "Elgato Key Light", "category": "Lights", "domain": "elgato", "blurb": "Found on your Wi-Fi automatically." },
+    { "id": "tplink", "name": "TP-Link Tapo and Kasa", "category": "Plugs and switches", "domain": "tplink", "blurb": "Plugs, bulbs and switches. Your Tapo login may be asked for." },
+    { "id": "shelly", "name": "Shelly", "category": "Plugs and switches", "domain": "shelly", "blurb": "Relays and plugs, found on your Wi-Fi." },
+    { "id": "switchbot", "name": "SwitchBot", "category": "Plugs and switches", "domain": "switchbot", "blurb": "Bluetooth bots, curtains and plugs nearby." },
+    { "id": "tuya", "name": "Smart Life and Tuya", "category": "Plugs and switches", "domain": "tuya", "blurb": "Scan a code with the Smart Life app." },
+    { "id": "tado", "name": "Tado", "category": "Heating", "domain": "tado", "blurb": "Sign in with your Tado account." },
+    { "id": "hive", "name": "Hive", "category": "Heating", "domain": "hive", "blurb": "Sign in with your Hive account." },
+    { "id": "sonos", "name": "Sonos", "category": "Speakers and TV", "domain": "sonos", "blurb": "Found on your Wi-Fi automatically." },
+    { "id": "cast", "name": "Google Cast and Nest speakers", "category": "Speakers and TV", "domain": "cast", "blurb": "Chromecasts and Google speakers on your Wi-Fi." },
+    { "id": "samsungtv", "name": "Samsung TV", "category": "Speakers and TV", "domain": "samsungtv", "blurb": "Accept the request on the TV." },
+    { "id": "lgtv", "name": "LG TV", "category": "Speakers and TV", "domain": "webostv", "blurb": "Accept the request on the TV." },
+    { "id": "appletv", "name": "Apple TV", "category": "Speakers and TV", "domain": "apple_tv", "blurb": "Type the code shown on the TV." },
+    { "id": "ring", "name": "Ring", "category": "Security", "domain": "ring", "blurb": "Sign in with your Ring account." },
+    { "id": "reolink", "name": "Reolink cameras", "category": "Security", "domain": "reolink", "blurb": "Camera's address and password." },
+    { "id": "yale", "name": "Yale", "category": "Security", "domain": "yale", "blurb": "Sign in with your Yale account." },
+    { "id": "nuki", "name": "Nuki", "category": "Security", "domain": "nuki", "blurb": "Smart locks with a Nuki Bridge." },
+    { "id": "roborock", "name": "Roborock", "category": "Cleaning", "domain": "roborock", "blurb": "Sign in with your Roborock email." },
+    { "id": "roomba", "name": "iRobot Roomba", "category": "Cleaning", "domain": "roomba", "blurb": "Press the Home button when asked." },
+    { "id": "smartthings", "name": "Samsung SmartThings", "category": "Other", "domain": "smartthings", "blurb": "Sign in with your Samsung account." },
+    { "id": "xiaomi", "name": "Xiaomi", "category": "Other", "domain": "xiaomi_miio", "blurb": "Sign in with your Xiaomi account." }
+  ]
+}

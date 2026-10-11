@@ -12,5 +12,6 @@
   "voiceStudioUrl": "",
   "voiceStudioVoice": "",
   "elevenLabsApiKey": "",
-  "elevenLabsVoiceId": ""
+  "elevenLabsVoiceId": "",
+  "homeEngineUrl": "http://127.0.0.1:8123"
 }

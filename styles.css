@@ -3073,3 +3073,58 @@ body.hud-boot .hud-status { animation: hud-fade-in 400ms 200ms both; }
 body.theme-light .ha-or {
   color: rgba(0, 0, 0, 0.45);
 }
+
+/* Smart Devices store */
+.dv-view .page-header { align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.dv-search { min-width: min(320px, 100%); padding: 12px 18px; border-radius: 999px; border: 1px solid rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.05); color: var(--text); }
+.dv-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 18px -6px var(--accent); }
+.dv-banner { display: grid; gap: 6px; justify-items: start; margin: 0 0 24px; padding: 18px 20px; border-radius: 18px; border: 1px solid rgba(255, 210, 138, 0.4); background: rgba(255, 210, 138, 0.06); }
+.dv-banner span { color: var(--muted); }
+.dv-banner .ghost-button { margin-top: 8px; }
+.dv-found { margin: 0 0 28px; }
+.dv-found-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.dv-chip { display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px 10px 12px; border-radius: 999px; border: 1px solid rgba(var(--accent-rgb), 0.5); background: rgba(var(--accent-rgb), 0.08); cursor: pointer; }
+.dv-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px 2px var(--accent); animation: hud-pulse 2.4s ease-in-out infinite; }
+.dv-chip b { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+.dv-catalog { display: grid; gap: 30px; padding-bottom: 40px; }
+.dv-group h2 { margin: 0 0 12px; font-size: 14px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
+.dv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.dv-card { position: relative; display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto auto; column-gap: 14px; row-gap: 4px; align-items: center; text-align: left; padding: 16px 18px; min-height: 92px; border-radius: 18px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.03); cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease; }
+.dv-card:hover, .dv-card:focus-visible { border-color: rgba(var(--accent-rgb), 0.6); transform: translateY(-1px); outline: none; }
+.dv-card strong { font-weight: 500; font-size: 17px; align-self: end; }
+.dv-card > span:last-child { grid-column: 2; color: var(--muted); font-size: 13px; line-height: 1.35; align-self: start; }
+.dv-mark { grid-row: 1 / span 2; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 600; letter-spacing: 0.06em; color: var(--accent); border: 1px solid rgba(var(--accent-rgb), 0.45); background: radial-gradient(circle, rgba(var(--accent-rgb), 0.16), transparent 70%); }
+.dv-card.is-on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 24px -10px var(--accent); }
+.dv-card.is-on .dv-mark { background: var(--accent); color: #001018; box-shadow: 0 0 18px -2px var(--accent); }
+.dv-card.is-on > span:last-child { color: var(--accent); }
+.dv-card.is-found::after { content: ""; position: absolute; top: 14px; right: 14px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px 3px var(--accent); animation: hud-pulse 2.4s ease-in-out infinite; }
+.dv-empty { color: var(--muted); }
+.dv-dialog #dvBody { display: grid; gap: 14px; }
+.dv-dialog label { display: grid; gap: 6px; }
+.dv-dialog label small { color: var(--muted); font-size: 13px; }
+.dv-dialog label em { color: #ff8a8a; font-style: normal; font-size: 13px; }
+.dv-check { grid-template-columns: auto 1fr; align-items: center; }
+.dv-text { margin: 0; color: rgba(255, 255, 255, 0.78); line-height: 1.5; white-space: pre-line; }
+.dv-alert { margin: 0; padding: 10px 14px; border-radius: 12px; background: rgba(255, 138, 138, 0.1); color: #ffb0b0; }
+.dv-menu { display: grid; gap: 10px; }
+.dv-option { padding: 14px 16px; border-radius: 14px; text-align: left; border: 1px solid rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.05); cursor: pointer; }
+.dv-option:hover { border-color: var(--accent); }
+.dv-wait, .dv-done { display: grid; justify-items: center; gap: 14px; text-align: center; padding: 8px 0; }
+.dv-wait p, .dv-done p { margin: 0; color: rgba(255, 255, 255, 0.8); line-height: 1.5; white-space: pre-line; }
+.dv-spinner { width: 46px; height: 46px; border-radius: 50%; border: 2px solid rgba(var(--accent-rgb), 0.2); border-top-color: var(--accent); animation: dv-spin 0.9s linear infinite; box-shadow: 0 0 18px -6px var(--accent); }
+@keyframes dv-spin { to { transform: rotate(360deg); } }
+.dv-tick { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 22px -4px var(--accent); position: relative; }
+.dv-tick::after { content: ""; position: absolute; left: 19px; top: 13px; width: 12px; height: 22px; border: solid var(--accent); border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.dv-qr { width: 200px; padding: 12px; border-radius: 16px; background: #fff; }
+.dv-qr svg { display: block; width: 100%; height: auto; }
+.dv-hint { font-size: 14px; color: var(--muted) !important; }
+.dv-hint a { color: var(--accent); }
+.dv-code { margin: 0; font-size: 28px; letter-spacing: 0.18em; font-weight: 600; color: var(--accent); }
+.dv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.dv-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); }
+.dv-camera video { width: 100%; border-radius: 14px; border: 1px solid rgba(var(--accent-rgb), 0.4); }
+body.theme-light .dv-card { border-color: rgba(0, 0, 0, 0.12); background: rgba(0, 0, 0, 0.02); }
+body.theme-light .dv-text, body.theme-light .dv-wait p, body.theme-light .dv-done p { color: rgba(0, 0, 0, 0.75); }
+.dv-rooms { display: grid; gap: 12px; max-height: 50vh; overflow: auto; }
+.dv-rooms label { grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; }
+.dv-rooms input.is-saved { border-color: var(--accent); }

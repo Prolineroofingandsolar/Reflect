@@ -16,6 +16,7 @@ try { localConfig = JSON.parse(fs.readFileSync(path.join(root, "reflect-os.confi
 let appVersion = "0.0.0";
 try { appVersion = fs.readFileSync(path.join(root, "VERSION"), "utf8").trim() || appVersion; } catch {}
 const oauthStates = new Map();
+const { createHomeEngine } = require("./home-engine");
 const pinAttempts = new Map();
 
 function resolveSecret() {
@@ -164,6 +165,27 @@ function redirect(res, url) {
   res.end();
 }
 
+// The hidden home engine (a Home Assistant on this mirror). Its key lives in its own file, so it can
+// never be lost to an account save that started before the engine was set up.
+const homeEngineFile = path.join(dataDir, "home-engine.json");
+const homeEngine = createHomeEngine({
+  url: process.env.REFLECT_HOME_ENGINE ?? localConfig.homeEngineUrl ?? "http://127.0.0.1:8123",
+  load: () => decrypt(fs.readFileSync(homeEngineFile, "utf8")),
+  save: (value) => { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(homeEngineFile, encrypt(value), { mode: 0o600 }); }
+});
+let homeEngineConfig = null;
+// An account's own Home Assistant or Hue Bridge wins; otherwise the mirror's built-in engine.
+function homeConfig(session) {
+  if (session.account.tokens?.smartHome) return decrypt(session.account.tokens.smartHome);
+  return homeEngineConfig;
+}
+function markHomeConnected(session) {
+  const current = session.account.addOns.smartHome || {};
+  if (current.connectionStatus === "connected" && current.installed && current.enabled) return;
+  session.account.addOns.smartHome = { ...current, installed: true, enabled: true, connectionStatus: "connected", lastSync: new Date().toISOString() };
+  writeState(session.state);
+}
+
 async function body(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -201,6 +223,8 @@ const haDomains = new Set(["light", "switch", "climate", "lock", "cover", "fan",
 function haEntity(entity, areas) {
   const domain = String(entity?.entity_id || "").split(".")[0];
   if (!haDomains.has(domain)) return null;
+  // Home Assistant's own housekeeping sensors (sunrise times, backups) aren't devices.
+  if (/^(sensor|event|binary_sensor)\.(sun|backup)_/.test(entity.entity_id)) return null;
   const a = entity.attributes || {};
   const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
   return {
@@ -520,6 +544,61 @@ async function api(req, res, url) {
     return json(res, 200, session.account.jarvisMemory);
   }
 
+  // ---------- Smart Devices store ----------
+  if (url.pathname === "/api/devices" && req.method === "GET") {
+    let catalog = { categories: [], brands: [] };
+    try { catalog = JSON.parse(fs.readFileSync(path.join(root, "smart-devices.json"), "utf8")); } catch {}
+    const engine = await homeEngine.status();
+    homeEngineConfig = engine.available ? await homeEngine.ready() : null;
+    const own = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    let entries = [], found = [];
+    if (engine.available) {
+      ({ entries, found } = await homeEngine.overview().catch(() => ({ entries: [], found: [] })));
+      if (!own && entries.length) markHomeConnected(session);
+    }
+    return json(res, 200, { engine, own: own ? (own.kind === "hue" ? "hue" : "homeAssistant") : "", catalog, entries, found, addOn: session.account.addOns.smartHome || null });
+  }
+  if (url.pathname === "/api/devices/flow" && req.method === "POST") {
+    const input = await body(req);
+    try {
+      let step;
+      if (input.flowId) step = await homeEngine.stepFlow(String(input.flowId), input.input && typeof input.input === "object" ? input.input : undefined);
+      else {
+        let catalog = { brands: [] };
+        try { catalog = JSON.parse(fs.readFileSync(path.join(root, "smart-devices.json"), "utf8")); } catch {}
+        const brand = catalog.brands.find((b) => b.id === input.brand);
+        if (!brand) return json(res, 404, { error: "That brand isn't in the catalog." });
+        step = await homeEngine.startFlow(brand.domain);
+      }
+      if (step.type === "create_entry") { homeEngineConfig = await homeEngine.ready(); if (!session.account.tokens?.smartHome) markHomeConnected(session); }
+      return json(res, 200, step);
+    } catch (error) { return json(res, error.status === 404 ? 410 : 502, { error: error.status === 404 ? "That setup timed out. Start it again." : error.message }); }
+  }
+  const flowMatch = url.pathname.match(/^\/api\/devices\/flow\/([A-Za-z0-9_-]+)$/);
+  if (flowMatch && req.method === "DELETE") {
+    await homeEngine.cancelFlow(flowMatch[1]);
+    return json(res, 200, { ok: true });
+  }
+  if (url.pathname === "/api/devices/rooms" && req.method === "GET") {
+    try { return json(res, 200, await homeEngine.rooms(String(url.searchParams.get("entry") || ""))); }
+    catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/devices/rooms" && req.method === "POST") {
+    const input = await body(req);
+    try { await homeEngine.setRoom(String(input.deviceId || ""), input.room); return json(res, 200, { ok: true }); }
+    catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/devices/remove" && req.method === "POST") {
+    const input = await body(req);
+    try { await homeEngine.removeEntry(String(input.entryId || "")); return json(res, 200, { ok: true }); }
+    catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  if (url.pathname === "/api/devices/matter" && req.method === "POST") {
+    const input = await body(req);
+    try { await homeEngine.commissionMatter(input.code); if (!session.account.tokens?.smartHome) markHomeConnected(session); return json(res, 200, { ok: true }); }
+    catch (error) { return json(res, 400, { error: error.message }); }
+  }
+
   // Hue pairing: the person presses the round button on the bridge, then the mirror asks the bridge
   // for a key. The mirror keeps asking for a little while, so the order doesn't matter.
   if (url.pathname === "/api/integrations/hue/pair" && req.method === "POST") {
@@ -560,7 +639,7 @@ async function api(req, res, url) {
     return json(res, 200, session.account.addOns.smartHome);
   }
   if (url.pathname === "/api/homeassistant/states" && req.method === "GET") {
-    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    const config = homeConfig(session);
     if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
     if (config.kind === "hue") {
       try { return json(res, 200, { entities: hueEntities(await hueRequest(config, "")), syncedAt: new Date().toISOString() }); }
@@ -576,14 +655,14 @@ async function api(req, res, url) {
     } catch (error) { return json(res, 502, { error: error.message }); }
   }
   if (url.pathname === "/api/homeassistant/stream" && req.method === "GET") {
-    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    const config = homeConfig(session);
     if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
     return config.kind === "hue" ? hueStream(req, res, config) : homeAssistantStream(req, res, config);
   }
   // Camera feeds come through the mirror's server so the Home Assistant token never reaches the browser.
   const cameraMatch = url.pathname.match(/^\/api\/homeassistant\/camera\/(camera\.[a-z0-9_]+)$/);
   if (cameraMatch && req.method === "GET") {
-    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    const config = homeConfig(session);
     if (!config || config.kind === "hue") return json(res, 409, { error: "Connect Home Assistant first." });
     const still = url.searchParams.get("still") === "1";
     const controller = new AbortController();
@@ -597,7 +676,7 @@ async function api(req, res, url) {
     } catch (error) { if (!res.headersSent) return json(res, 502, { error: error.message }); return res.end(); }
   }
   if (url.pathname === "/api/homeassistant/service" && req.method === "POST") {
-    const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
+    const config = homeConfig(session);
     if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
     const input = await body(req);
     if (!/^[a-z_]+\.[a-z_0-9]+$/.test(String(input.service || ""))) return json(res, 400, { error: "Invalid service." });
@@ -851,7 +930,7 @@ Never repeat yourself: vary how you open and phrase replies, and don't reuse a l
 }
 
 const assistantTools = [
-  { name: "show_screen", description: "Switch the mirror to one of its screens.", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "house", "settings"] } }, required: ["screen"], additionalProperties: false } },
+  { name: "show_screen", description: "Switch the mirror to one of its screens. devices is where new smart devices are added (\"add a new light\", \"connect my Tado\").", input_schema: { type: "object", properties: { screen: { type: "string", enum: ["home", "calendar", "tasks", "music", "weather", "smart_home", "devices", "house", "settings"] } }, required: ["screen"], additionalProperties: false } },
   { name: "show_room", description: "Show a room on the 3D House screen: the camera flies to it and its controls open. Use a room key or name from the 3D house list in the context.", input_schema: { type: "object", properties: { room: { type: "string" } }, required: ["room"], additionalProperties: false } },
   { name: "show_house", description: "Show the whole 3D house, or just one floor of it.", input_schema: { type: "object", properties: { floor: { type: "string", enum: ["all", "downstairs", "upstairs"] } }, additionalProperties: false } },
   { name: "show_camera", description: "Show a live security camera on the 3D House screen. Use a camera id or name from the context; leave it out for the first camera.", input_schema: { type: "object", properties: { camera: { type: "string" } }, additionalProperties: false } },
@@ -1046,7 +1125,7 @@ async function assistantApi(req, res, url) {
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".glb": "model/gltf-binary" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json", "devices.js", "vendor/qrcode.js"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");
@@ -1085,6 +1164,13 @@ function handleRequest(req, res) {
 
 if (require.main === module) {
   http.createServer(handleRequest).listen(port, "127.0.0.1", () => console.log(`Reflect OS running at http://127.0.0.1:${port}`));
+  // Find (and the first time, set up) the built-in home engine, and keep looking while it starts up.
+  const findEngine = async () => {
+    homeEngineConfig = await homeEngine.ready().catch(() => null);
+    if (homeEngineConfig) console.log("Home engine ready: smart devices can be added from the Smart Devices screen.");
+    else if (homeEngine.url) setTimeout(findEngine, 30000);
+  };
+  findEngine();
 }
 
 module.exports = { handleRequest };

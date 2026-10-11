@@ -459,15 +459,15 @@ async function toggleEntity(id){
 function renderHomeKit(){
   const grid=$("homekitGrid");if(!grid)return;
   const status=$("homekitStatus"),connectBtn=$("homekitConnect");
-  if(connectBtn){connectBtn.hidden=false;connectBtn.textContent=connected("smartHome")?"Disconnect":"Connect Hue or Home Assistant";}
+  if(connectBtn){connectBtn.hidden=false;connectBtn.textContent="Add devices";}
   if(!connected("smartHome")){
-    if(status)status.textContent=addOnInstalled("smartHome")?"Connect Philips Hue or Home Assistant":"Install Smart Home from Add-ons";
-    grid.innerHTML=`<div class="homekit-empty"><p>Connect Home Assistant to control lights, climate, locks and scenes from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Connect Home Assistant</button></div>`;
-    $("homekitConnectCta")?.addEventListener("click",()=>connectAddOn("smartHome"));
+    if(status)status.textContent="Nothing connected yet";
+    grid.innerHTML=`<div class="homekit-empty"><p>Add your lights, heating, plugs, speakers and cameras to control them from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Add devices</button></div>`;
+    $("homekitConnectCta")?.addEventListener("click",()=>showView("devices"));
     return;
   }
-  if(status)status.textContent=`${homeAssistantEntities.some(e=>/^[a-z_]+\.hue_/.test(e.id))?"Philips Hue":"Home Assistant"} · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
-  if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
+  if(status)status.textContent=`${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
+  if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No devices yet. Add some from the Devices screen.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
   const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
@@ -764,7 +764,7 @@ $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask")
 $("affirmationMode")?.addEventListener("change",()=>{affirmationIndex=0;profile.affirmations.mode=$("affirmationMode").value;saveProfile();renderHome();});
 $("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.interval=Number($("affirmationInterval").value);saveProfile();restartAffirmations();});
 $("affirmationCustom")?.addEventListener("input",()=>{affirmationIndex=0;profile.affirmations.custom=$("affirmationCustom").value.split("\n").map(line=>line.trim()).filter(Boolean);saveProfile();renderHome();});
-$("haForm")?.addEventListener("submit",connectHomeAssistant);$("hueConnect")?.addEventListener("click",connectHue);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>connected("smartHome")?disconnectAddOn("smartHome"):connectConnection("smartHome"));
+$("haForm")?.addEventListener("submit",connectHomeAssistant);$("hueConnect")?.addEventListener("click",connectHue);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>showView("devices"));
 document.querySelectorAll("[data-home-device]").forEach(button=>button.addEventListener("click",()=>button.classList.toggle("is-active")));
 $("homeEditFab")?.addEventListener("click",()=>setEditing(true));
 $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout").addEventListener("click",()=>{const account=profile.account,addOns=profile.addOns,photos=profile.photos;profile=clone(defaultProfile);profile.account=account;profile.addOns=addOns;profile.photos=photos;saveProfile();applyProfile();renderHome();renderWidgetSettings();});

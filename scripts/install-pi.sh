@@ -23,6 +23,9 @@ sed "s#Exec=/home/pi/reflect-os/scripts/launch-pi.sh#Exec=${APP_ROOT}/scripts/la
   "${APP_ROOT}/scripts/reflect-os.desktop" > "${HOME}/.config/autostart/reflect-os.desktop"
 chmod +x "${APP_ROOT}/scripts/launch-pi.sh"
 
+echo "Installing the home engine for smart devices..."
+bash "${APP_ROOT}/scripts/install-home-engine.sh"
+
 echo
 echo "Done. Reboot to start the mirror:  sudo reboot"
 echo "Server logs:  journalctl -u reflect-os-server -f"
