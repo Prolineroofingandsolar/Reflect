@@ -201,7 +201,7 @@
       const rooms = [...new Map(homeAssistantEntities.filter((e) => e.areaId).map((e) => [e.areaId, e.area])).entries()];
       lines.push(rooms.length ? `Rooms (area id = name): ${rooms.map(([id, name]) => `${id} = ${name}`).join(", ")}.` : "Rooms: none set up in Home Assistant.");
       lines.push("Smart home devices (entity id | name | room | state):");
-      homeAssistantEntities.slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
+      homeAssistantEntities.filter((e) => e.state !== "unavailable" && e.state !== "unknown").slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
     }
     if (connected("smartHome")) { try { lines.push(...(window.ReflectHome3D?.describe() || [])); } catch {} }
     const timers = loadTimers();
@@ -478,6 +478,9 @@
     A.busy = true;
     setState("thinking");
     A.timing = { asked: performance.now() };
+    // If the answer isn't on its way within a moment, he says "Right, sir" so you know he heard.
+    clearTimeout(A.ackTimer);
+    A.ackTimer = setTimeout(() => { if (live() && !talk) playAck(); }, 650);
     // A fresh conversation after a few quiet minutes keeps replies fast and history append-only.
     if (Date.now() - A.lastTurn > 180000 || A.conversation.length > 40) A.conversation = [];
     let reply = "", talk = null;
@@ -486,7 +489,7 @@
     // sentence while the rest of the reply is still being written.
     const feed = sentenceFeeder((sentence) => {
       if (!live()) return;
-      if (!talk) { talk = startTalking(); showReply(""); if (A.timing && !A.timing.text) A.timing.text = performance.now(); }
+      if (!talk) { clearTimeout(A.ackTimer); talk = startTalking(); showReply(""); if (A.timing && !A.timing.text) A.timing.text = performance.now(); }
       showReplyPart(sentence);
       talk.say(sentence);
     });
@@ -525,6 +528,7 @@
       if (talk && live()) { showReplyPart(reply); talk.say(reply); }
     } finally {
       A.busy = false;
+      clearTimeout(A.ackTimer);
     }
     if (A.queued) { const next = A.queued; A.queued = ""; return ask(next); }
     if (!live()) return;
@@ -749,7 +753,8 @@
   function speechQueue() {
     const run = (A.speakRun = (A.speakRun || 0) + 1);
     const maker = voiceMaker();
-    let generating = Promise.resolve(), playing = Promise.resolve(), broken = false;
+    let generating = Promise.resolve(), playing = A.ackPlaying || Promise.resolve(), broken = false;
+    A.ackPlaying = null;
     return {
       say(chunk) {
         const made = generating.then(async () => {
@@ -796,13 +801,47 @@
     if (K.loading) return K.loading;
     const started = performance.now();
     return (K.loading = kokoroCall({ type: "load" }))
-      .then((data) => { K.ready = true; K.engine = data.engine || "built-in voice"; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); })
+      .then((data) => { K.ready = true; K.engine = data.engine || "built-in voice"; console.info(`Built-in voice ready in ${((performance.now() - started) / 1000).toFixed(1)}s`); prepareAcks(); })
       .catch((error) => { K.failed = true; console.warn("Built-in voice unavailable:", error.message); });
   }
   async function makeKokoro(text) {
     // Kokoro's normal pace sounds slow and drawn out for Jarvis; a little quicker sounds natural.
     const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice(), speed: 1.12 });
     return URL.createObjectURL(blob);
+  }
+
+  // ---------- Instant acknowledgement ----------
+  // A few short replies ("Right, sir.") are spoken once in advance and kept ready, so the moment you
+  // finish talking he can react with no wait at all while Claude works on the real answer.
+  async function prepareAcks() {
+    const ac = audioContext();
+    if (!ac || A.acks) return;
+    const sir = String(A.status?.address || "").trim();
+    const lines = sir ? [`Right, ${sir}.`, "Certainly.", `One moment, ${sir}.`, "Of course."] : ["Right.", "Certainly.", "One moment.", "Of course."];
+    A.acks = [];
+    for (const line of lines) {
+      try {
+        const url = await makeKokoro(line);
+        A.acks.push(await ac.decodeAudioData(await (await fetch(url)).arrayBuffer()));
+        URL.revokeObjectURL(url);
+      } catch {}
+    }
+  }
+  function playAck() {
+    const ac = audioContext();
+    if (!ac || ac.state !== "running" || !A.acks?.length || A.ackPlaying) return;
+    const clip = A.acks[Math.floor(Math.random() * A.acks.length)];
+    const source = ac.createBufferSource();
+    source.buffer = clip; source.connect(ac.destination);
+    A.ackSource = source;
+    A.ackPlaying = new Promise((resolve) => { source.onended = resolve; source.start(); })
+      .finally(() => { if (A.ackSource === source) A.ackSource = null; });
+  }
+  // Opens the line to Claude as soon as you start talking to him (see /api/assistant/warm).
+  function warmBrain() {
+    if (Date.now() - (A.lastWarm || 0) < 3000) return;
+    A.lastWarm = Date.now();
+    fetch("/api/assistant/warm", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
   }
 
   // The first time a reply makes a sound, report how long it took (in the server window), so a slow
@@ -823,6 +862,8 @@
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (A.currentAudio) { A.currentAudio.pause(); A.currentAudio = null; }
     if (A.currentSource) { try { A.currentSource.stop(); } catch {} A.currentSource = null; }
+    if (A.ackSource) { try { A.ackSource.stop(); } catch {} A.ackSource = null; }
+    clearTimeout(A.ackTimer); A.ackPlaying = null;
   }
   // Speaking happens in three steps so a streamed reply can start talking before it has finished.
   function startTalking() {
@@ -891,7 +932,7 @@
   // middle isn't cut off and sent half-finished. Speaking also keeps the listening window open.
   function heard(text, isFinal) {
     clearTimeout(A.endTimer);
-    if (text) keepListening();
+    if (text) { keepListening(); warmBrain(); }
     if (isFinal && text) A.heardFinal = `${A.heardFinal} ${text}`.trim();
     const sofar = isFinal ? A.heardFinal : `${A.heardFinal} ${text}`.trim();
     if (sofar) showHeard(sofar);
@@ -911,6 +952,7 @@
 
   function listenForCommand(timeout = 8000, greet = true) {
     openStage();
+    warmBrain();
     clearTimeout(A.closeTimer);
     clearTimeout(A.commandTimer);
     setState("listening");
