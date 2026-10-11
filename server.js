@@ -693,7 +693,7 @@ const assistantTools = [
 // What the chosen model needs to answer quickly. Thinking is switched off so Jarvis starts talking straight
 // away (Sonnet 5.5 still thinks between tool calls; Opus can't switch it off, so it keeps low effort).
 // Haiku uses the older web search tool and has no refusal fallback.
-let fastReplies = true;
+let fastReplies = true, lastWarm = 0;
 function modelOptions(model, fast = true) {
   const haiku = /haiku/.test(model);
   const thinking = model === "claude-sonnet-5-5" ? { type: "between_tools" } : /haiku-5-5/.test(model) ? { type: "disabled" } : null;
@@ -722,10 +722,19 @@ async function rawBody(req, limit) {
 
 async function assistantApi(req, res, url) {
   if (url.pathname === "/api/assistant/status" && req.method === "GET") {
-    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, serverTranscription: Boolean(assistantConfig.openaiKey) });
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, serverTranscription: Boolean(assistantConfig.openaiKey), address: assistantConfig.address });
   }
   if (req.method !== "POST") return json(res, 404, { error: "Not found" });
   if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
+  // Called the moment the wake word is heard: opens the connection to Claude while you're still
+  // talking, so the real question doesn't wait for it. Listing models is free.
+  if (url.pathname === "/api/assistant/warm") {
+    if (assistantConfig.anthropicKey && Date.now() - lastWarm > 3000) {
+      lastWarm = Date.now();
+      fetch("https://api.anthropic.com/v1/models?limit=1", { headers: { "x-api-key": assistantConfig.anthropicKey, "anthropic-version": "2023-06-01", ...(assistantConfig.anthropicWorkspaceId ? { "anthropic-workspace-id": assistantConfig.anthropicWorkspaceId } : {}) } }).then((r) => r.arrayBuffer()).catch(() => {});
+    }
+    res.writeHead(204); return res.end();
+  }
   const type = String(req.headers["content-type"] || "");
 
   if (url.pathname === "/api/assistant/chat") {
