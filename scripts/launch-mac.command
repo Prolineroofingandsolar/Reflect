@@ -6,7 +6,7 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_URL="http://127.0.0.1:4173/index.html"
 
 # Always restart the server so config changes and code updates take effect on every launch.
-OLD_PID="$(lsof -tiTCP:4173 -sTCP:LISTEN 2>/dev/null)"
+OLD_PID="$(lsof -tiTCP:4173 -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$OLD_PID" ]; then
   kill $OLD_PID 2>/dev/null || true
   sleep 0.5
