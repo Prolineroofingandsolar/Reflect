@@ -79,7 +79,7 @@ function CameraRig({ model, view }) {
 
   useEffect(() => {
     const c = controls.current; if (!c) return;
-    const dist = portrait ? span * 2.4 + 8 : span * 1.1 + 6;
+    const dist = portrait ? span * 2.4 + 8 : span * 0.72 + 3.5;
     if (view.mode === "room" && view.room) {
       const room = model.rooms.find((r) => r.key === view.room); if (!room) return;
       const rc = new THREE.Vector3(...room.center), dims = room.box.getSize(new THREE.Vector3());

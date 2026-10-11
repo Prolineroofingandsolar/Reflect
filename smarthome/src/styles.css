@@ -139,6 +139,18 @@
   .h3-floors { top: auto; bottom: 150px; translate: 0 0; }
   .h3-app.is-room .h3-floors, .h3-app.is-camera .h3-floors { opacity: 0; pointer-events: none; }
 }
+/* Keep the whole-house model inside the clear part of a landscape mirror. The clock, floor
+   controls, connection banner and Jarvis strip remain outside this canvas instead of covering it. */
+@media (orientation: landscape) {
+  .h3-canvas {
+    left: clamp(210px, 15vw, 300px) !important;
+    right: clamp(8px, 1vw, 20px) !important;
+    top: clamp(80px, 7vw, 118px) !important;
+    bottom: clamp(54px, 5vw, 86px) !important;
+    width: auto !important;
+    height: auto !important;
+  }
+}
 @media (prefers-reduced-motion: reduce) { .h3-app * { animation: none !important; transition: none !important; } }
 
 /* While the 3D house is on screen, Jarvis uses its waveform under the house instead of his full stage. */

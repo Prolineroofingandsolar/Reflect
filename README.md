@@ -112,7 +112,7 @@ Setup: add your Anthropic API key to `reflect-os.config.json` (copy `reflect-os.
 - **Brain:** Claude (`claude-sonnet-5-5` by default, chosen for quick replies; set `assistantModel` to `claude-opus-5-5` for the deepest thinking at the cost of speed), called from the local server so the key never reaches the browser.
 - **Hearing:** the browser's built-in speech recognition (works in Chrome on a Mac; Chrome sends the audio to Google for recognition). The wake word listens continuously while the mirror is open; set `"assistantWakeWord": false` to only listen after a tap or `J`.
 - **Voice:** the browser's built-in voice, preferring downloaded Premium or Enhanced British voices (they sound far more natural than the built-in ones). On a Mac, add them in System Settings, Accessibility, Spoken Content, System voice, Manage Voices, under English (UK); "Jamie (Premium)" and "Oliver (Premium)" suit Jarvis. Say "Jarvis, change your voice" to step through the British voices, or "use the Daniel voice"; the choice is remembered.
-- **Fast built-in voice (Kokoro):** set `"builtInVoice": "bm_george"` and Jarvis speaks with Kokoro, a small natural-sounding voice model that runs inside the mirror's browser: free, no other app, and quick enough to start talking almost at once. The model downloads once on first start (a few hundred MB, kept by the browser); until it's ready the browser voice fills in. British voices: bm_george, bm_fable, bm_lewis, bm_daniel, bf_emma, bf_isabella, bf_alice, bf_lily. Say "Jarvis, change your voice" to try them. It takes priority over the other voice options.
+- **Fast built-in voice (Kokoro):** set `"builtInVoice": "bm_george"` and Jarvis speaks with Kokoro, a small natural-sounding voice model that runs inside the mirror's browser: free, with no other app. The model downloads once on first use (a few hundred MB, kept by the browser). It now loads only when first needed to keep Raspberry Pi memory use down; set `"preloadBuiltInVoice": true` if the device has ample memory and you prefer a faster first reply. British voices: bm_george, bm_fable, bm_lewis, bm_daniel, bf_emma, bf_isabella, bf_alice, bf_lily. Say "Jarvis, change your voice" to try them. It takes priority over the other voice options.
 - **Free natural voice (VoiceStudio):** install [VoiceStudio](https://github.com/debpalash/VoiceStudio) on the same computer (Apple Silicon Macs run it well), design or clone a voice in it and save it as a profile, then set `"voiceStudioUrl": "http://127.0.0.1:3900"` and `"voiceStudioVoice"` to the profile's name. Keep the VoiceStudio app open; if it isn't running, Jarvis falls back to the browser voice. Optional `voiceStudioModel` picks the engine. It takes priority over ElevenLabs and OpenAI.
 - **Film-like voice (ElevenLabs):** add an `elevenLabsApiKey` from elevenlabs.io for the most natural voice. It defaults to "George", a calm British voice; set `elevenLabsVoiceId` to any voice ID from the ElevenLabs voice library to change it. It takes priority over the OpenAI voice.
 - **Optional upgrade:** add an `openaiApiKey` for a natural-sounding server voice (`assistantVoice`, default `fable`) and for server-side speech recognition. Raspberry Pi Chromium has no built-in speech recognition, so on a Pi this key is what lets it hear you (tap or `J` to talk; the wake word needs browser speech recognition).
@@ -132,9 +132,13 @@ Setup: add your Anthropic API key to `reflect-os.config.json` (copy `reflect-os.
 - `J` talk to the voice assistant
 - `Escape` close navigation or exit edit mode
 
-## Remaining Integration
+## Updates And Remaining Integration
 
-Smart Home is still a visual Home Assistant placeholder. A production multi-device release also needs a hosted Reflect account service, signed add-on packages, automatic updates, and device pairing.
+Settings can compare the installed version with the current version on GitHub. Installing an update remains an explicit device-owner action through `scripts/update.sh`, so an unattended mirror never replaces its running code unexpectedly.
+
+Home Assistant is a working local integration: its token is encrypted on the mirror, devices and areas are loaded live, and controls are sent through the local server so the token never reaches the browser. A production multi-device release still needs a hosted Reflect account service, signed add-on packages and device pairing.
+
+Pull requests run script checks, server smoke tests and a clean 3D-house production build through GitHub Actions.
 
 See `BACKEND.md` for the Reflect Cloud integration contract.
 See `ADDON-SDK.md` for the add-on manifest and lifecycle contract.

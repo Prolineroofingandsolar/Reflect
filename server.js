@@ -8,15 +8,18 @@ const crypto = require("crypto");
 
 const root = __dirname;
 const port = Number(process.env.REFLECT_PORT || 4173);
-const dataDir = path.join(root, "data");
+const dataDir = process.env.REFLECT_DATA_DIR ? path.resolve(process.env.REFLECT_DATA_DIR) : path.join(root, "data");
 const stateFile = path.join(dataDir, "state.json");
 const catalogFile = path.join(root, "addons", "catalog.json");
+const configFile = process.env.REFLECT_CONFIG_FILE ? path.resolve(process.env.REFLECT_CONFIG_FILE) : path.join(root, "reflect-os.config.json");
 let localConfig = {};
-try { localConfig = JSON.parse(fs.readFileSync(path.join(root, "reflect-os.config.json"), "utf8")); } catch {}
+try { fs.chmodSync(configFile, 0o600); } catch {}
+try { localConfig = JSON.parse(fs.readFileSync(configFile, "utf8")); } catch {}
 let appVersion = "0.0.0";
 try { appVersion = fs.readFileSync(path.join(root, "VERSION"), "utf8").trim() || appVersion; } catch {}
 const oauthStates = new Map();
 const pinAttempts = new Map();
+const requestWindows = new Map();
 
 function resolveSecret() {
   const configured = process.env.REFLECT_SECRET || localConfig.reflectSecret;
@@ -24,13 +27,20 @@ function resolveSecret() {
   // No real secret configured: generate one once and persist it outside the web root (0600) so provider
   // tokens are never encrypted with a public constant. Removing this file invalidates stored tokens.
   const keyFile = path.join(dataDir, "secret.key");
-  try { return fs.readFileSync(keyFile, "utf8").trim(); } catch {}
+  try {
+    const saved = fs.readFileSync(keyFile, "utf8").trim();
+    try { fs.chmodSync(keyFile, 0o600); } catch {}
+    return saved;
+  } catch {}
   const generated = crypto.randomBytes(48).toString("hex");
-  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(dataDir, 0o700); } catch {}
   fs.writeFileSync(keyFile, generated, { mode: 0o600 });
   console.warn("Reflect OS generated a device secret at data/secret.key. Set REFLECT_SECRET to override.");
   return generated;
 }
+fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+try { fs.chmodSync(dataDir, 0o700); } catch {}
 const secret = crypto.createHash("sha256").update(resolveSecret()).digest();
 const assistantConfig = {
   name: String(process.env.REFLECT_ASSISTANT_NAME || localConfig.assistantName || "Jarvis").trim() || "Jarvis",
@@ -47,6 +57,7 @@ const assistantConfig = {
   // Optional: a voice that runs inside the mirror's browser (Kokoro), fast and free with no other app.
   // Set builtInVoice to one of bm_george, bm_fable, bm_lewis, bm_daniel, bf_emma, bf_isabella, bf_alice, bf_lily.
   builtInVoice: String(localConfig.builtInVoice || "").trim(),
+  preloadBuiltInVoice: localConfig.preloadBuiltInVoice === true,
   // Optional: VoiceStudio (github.com/debpalash/VoiceStudio) runs a natural voice free on this computer.
   // Set voiceStudioUrl (its app serves http://127.0.0.1:3900) and voiceStudioVoice to a saved voice profile.
   // It takes priority over ElevenLabs and OpenAI.
@@ -68,7 +79,7 @@ const providers = {
     clientId: process.env.SPOTIFY_CLIENT_ID || localConfig.spotifyClientId,
     authorize: "https://accounts.spotify.com/authorize",
     token: "https://accounts.spotify.com/api/token",
-    scopes: "streaming user-read-email user-read-private user-read-currently-playing user-read-playback-state user-read-recently-played user-modify-playback-state"
+    scopes: "streaming user-read-email user-read-private user-read-currently-playing user-read-playback-state user-read-recently-played user-modify-playback-state playlist-read-private playlist-read-collaborative"
   },
   googleCalendar: {
     clientId: process.env.GOOGLE_CLIENT_ID || localConfig.googleClientId,
@@ -104,9 +115,14 @@ function verifyPin(pin, saved) {
 let lastStateSerialized = null;
 function readState() {
   let raw;
+  try { fs.chmodSync(stateFile, 0o600); } catch {}
   try { raw = fs.readFileSync(stateFile, "utf8"); }
   catch { return { accounts: {}, sessions: {} }; }
-  try { const parsed = JSON.parse(raw); lastStateSerialized = raw; return parsed; }
+  try {
+    const parsed = JSON.parse(raw);
+    lastStateSerialized = raw;
+    return parsed;
+  }
   catch {
     // Never silently discard a corrupt state file (that would wipe every account/token). Preserve it
     // for recovery and start clean. Atomic writes below make this path very unlikely in practice.
@@ -118,13 +134,27 @@ function readState() {
 function writeState(state) {
   const serialized = JSON.stringify(state, null, 2);
   if (serialized === lastStateSerialized) return; // unchanged: skip the write to reduce SD-card wear
-  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(dataDir, 0o700); } catch {}
   const tmp = `${stateFile}.${process.pid}.tmp`;
-  const fd = fs.openSync(tmp, "w");
+  const fd = fs.openSync(tmp, "w", 0o600);
   try { fs.writeSync(fd, serialized); fs.fsyncSync(fd); }
   finally { fs.closeSync(fd); }
   fs.renameSync(tmp, stateFile); // atomic: readers see either the old or the new file, never a partial write
+  try { fs.chmodSync(stateFile, 0o600); } catch {}
   lastStateSerialized = serialized;
+}
+
+// Always apply a change to the newest copy on disk. Route handlers often wait for Spotify,
+// Google or Home Assistant; writing the snapshot from before that wait could otherwise undo a
+// task, layout or integration change made by another request in the meantime.
+function updateAccount(id, change) {
+  const state = readState();
+  const account = state.accounts?.[id];
+  if (!account) return null;
+  const result = change(account, state);
+  writeState(state);
+  return result === undefined ? account : result;
 }
 
 function encrypt(value) {
@@ -164,20 +194,38 @@ function redirect(res, url) {
   res.end();
 }
 
-async function body(req) {
+function rateAllowed(req, bucket, limit, windowMs = 60000) {
+  const key = `${cookies(req).reflect_session || req.socket?.remoteAddress || "local"}:${bucket}`;
+  const now = Date.now();
+  const recent = (requestWindows.get(key) || []).filter((time) => now - time < windowMs);
+  if (recent.length >= limit) return false;
+  recent.push(now);
+  requestWindows.set(key, recent);
+  return true;
+}
+
+async function body(req, limit = 256 * 1024) {
+  if (Number(req.headers["content-length"] || 0) > limit) throw Object.assign(new Error("That request is too large."), { status: 413 });
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw Object.assign(new Error("That request is too large."), { status: 413 });
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  catch { throw Object.assign(new Error("That request is not valid JSON."), { status: 400 }); }
 }
 
 function publicAccount(record, id) {
   return { id, name: record.name, email: record.email, addOns: record.addOns || {} };
 }
 
-async function refreshProvider(accountRecord, providerId) {
+async function refreshProvider(accountId, providerId) {
   const provider = providers[providerId];
-  const saved = accountRecord.tokens?.[providerId];
+  const accountRecord = readState().accounts?.[accountId];
+  const saved = accountRecord?.tokens?.[providerId];
   if (!saved) return null;
   let token = decrypt(saved);
   if (token.expiresAt > Date.now() + 60000) return token;
@@ -192,7 +240,10 @@ async function refreshProvider(accountRecord, providerId) {
   if (!response.ok) throw new Error("Could not refresh provider session");
   const refreshed = await response.json();
   token = { ...token, ...refreshed, expiresAt: Date.now() + (refreshed.expires_in || 3600) * 1000 };
-  accountRecord.tokens[providerId] = encrypt(token);
+  updateAccount(accountId, (account) => {
+    account.tokens = account.tokens || {};
+    account.tokens[providerId] = encrypt(token);
+  });
   return token;
 }
 
@@ -272,6 +323,21 @@ async function api(req, res, url) {
   if (url.pathname === "/api/health" && req.method === "GET") {
     return json(res, 200, { ok: true, version: appVersion, spotifyConfigured: Boolean(providers.spotify.clientId), googleConfigured: Boolean(providers.googleCalendar.clientId && providers.googleCalendar.clientSecret) });
   }
+  if (url.pathname === "/api/update-status" && req.method === "GET") {
+    const repository = String(localConfig.updateRepository || "Prolineroofingandsolar/Reflect").replace(/[^A-Za-z0-9_.\/-]/g, "");
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`https://raw.githubusercontent.com/${repository}/main/VERSION`, { signal: controller.signal, headers: { "User-Agent": "Reflect-OS" } });
+      clearTimeout(timer);
+      if (!response.ok) throw new Error("Version check failed");
+      const latest = (await response.text()).trim();
+      const parts = (value) => String(value).split(".").map((part) => Number.parseInt(part, 10) || 0);
+      const installedParts = parts(appVersion), latestParts = parts(latest);
+      const updateAvailable = [0, 1, 2].some((index) => latestParts[index] !== installedParts[index] && latestParts[index] > installedParts[index] && latestParts.slice(0, index).every((part, prior) => part === installedParts[prior]));
+      return json(res, 200, { installed: appVersion, latest, updateAvailable });
+    } catch { return json(res, 502, { error: "Could not check GitHub for updates.", installed: appVersion }); }
+  }
   if (url.pathname === "/api/catalog" && req.method === "GET") {
     return json(res, 200, { addOns: readCatalog() });
   }
@@ -336,7 +402,10 @@ async function api(req, res, url) {
     return json(res, 200, { signedIn: false }, { "Set-Cookie": "reflect_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0" });
   }
 
-  if (url.pathname.startsWith("/api/assistant/")) return assistantApi(req, res, url);
+  if (url.pathname.startsWith("/api/assistant/")) {
+    if (url.pathname !== "/api/assistant/status" && !currentAccount(req)) return json(res, 401, { error: "Sign in to Reflect OS before using the assistant." });
+    return assistantApi(req, res, url);
+  }
 
   const session = currentAccount(req);
   if (!session) return json(res, 401, { error: "Sign in to Reflect OS first." });
@@ -347,9 +416,9 @@ async function api(req, res, url) {
     const input = await body(req);
     const tasks = Array.isArray(input.tasks) ? input.tasks.slice(0, 100) : [];
     const events = Array.isArray(input.events) ? input.events.slice(0, 100) : [];
-    session.account.data = { tasks, events };
-    writeState(session.state);
-    return json(res, 200, session.account.data);
+    const data = { tasks, events };
+    updateAccount(session.id, (account) => { account.data = data; });
+    return json(res, 200, data);
   }
 
   // The house builder's layout (rooms, floors, sizes) for the 3D House screen. The mirror cleans it again on load.
@@ -360,7 +429,7 @@ async function api(req, res, url) {
     const input = await body(req);
     const layout = input.layout, num = (v, fallback) => (Number.isFinite(Number(v)) ? Math.max(-60, Math.min(60, Number(v))) : fallback);
     if (!layout || !Array.isArray(layout.rooms) || layout.rooms.length > 40 || JSON.stringify(layout).length > 20000) return json(res, 400, { error: "That house layout isn't valid." });
-    session.account.houseLayout = { version: 1, floors: Math.max(1, Math.min(4, Number(layout.floors) || 1)), rooms: layout.rooms.map((r) => ({
+    const savedLayout = { version: 1, floors: Math.max(1, Math.min(4, Number(layout.floors) || 1)), rooms: layout.rooms.map((r) => ({
       key: String(r.key || "").slice(0, 40), type: String(r.type || "other").slice(0, 30), label: String(r.label || "").slice(0, 30), floor: Math.max(0, Math.min(3, Math.round(Number(r.floor) || 0))),
       x: [num(r.x?.[0], 0), num(r.x?.[1], 1)], z: [num(r.z?.[0], 0), num(r.z?.[1], 1)],
       ...(Array.isArray(r.points) && { points: r.points.slice(0, 24).filter(Array.isArray).map((p) => [num(p[0], 0), num(p[1], 0)]) })
@@ -368,8 +437,8 @@ async function api(req, res, url) {
       floor: Math.max(0, Math.min(3, Math.round(Number(s.floor) || 0))), x: [num(s.x?.[0], 0), num(s.x?.[1], 1)], z: [num(s.z?.[0], 0), num(s.z?.[1], 1)],
       dir: ["n", "s", "e", "w"].includes(s.dir) ? s.dir : "n"
     })) };
-    writeState(session.state);
-    return json(res, 200, { layout: session.account.houseLayout });
+    updateAccount(session.id, (account) => { account.houseLayout = savedLayout; });
+    return json(res, 200, { layout: savedLayout });
   }
 
   // Home Assistant uses a user-pasted long-lived access token rather than OAuth.
@@ -381,11 +450,14 @@ async function api(req, res, url) {
     let ok = false;
     try { const check = await fetch(`${baseUrl}/api/`, { headers: { Authorization: `Bearer ${token}` } }); ok = check.ok; } catch {}
     if (!ok) return json(res, 502, { error: "Could not reach Home Assistant with those details. Check the URL and token." });
-    session.account.tokens = session.account.tokens || {};
-    session.account.tokens.smartHome = encrypt({ baseUrl, token });
-    session.account.addOns.smartHome = { ...(session.account.addOns.smartHome || {}), installed: true, enabled: true, connectionStatus: "connected", lastSync: new Date().toISOString() };
-    writeState(session.state);
-    return json(res, 200, session.account.addOns.smartHome);
+    const connected = updateAccount(session.id, (account) => {
+      account.tokens = account.tokens || {};
+      account.addOns = account.addOns || {};
+      account.tokens.smartHome = encrypt({ baseUrl, token });
+      account.addOns.smartHome = { ...(account.addOns.smartHome || {}), installed: true, enabled: true, connectionStatus: "connected", lastSync: new Date().toISOString() };
+      return account.addOns.smartHome;
+    });
+    return json(res, 200, connected);
   }
   if (url.pathname === "/api/homeassistant/states" && req.method === "GET") {
     const config = session.account.tokens?.smartHome ? decrypt(session.account.tokens.smartHome) : null;
@@ -437,27 +509,34 @@ async function api(req, res, url) {
     const id = addonMatch[1];
     const addon = catalogEntry(id);
     if (!addon) return json(res, 404, { error: "That add-on is not available." });
-    session.account.addOns[id] = { ...(session.account.addOns[id] || {}), installed: true, enabled: true, connectionStatus: id === "weather" || id === "photos" ? "connected" : "disconnected", lastSync: id === "photos" ? "Stored on this mirror" : "" };
-    writeState(session.state);
-    return json(res, 200, session.account.addOns[id]);
+    const installed = updateAccount(session.id, (account) => {
+      account.addOns = account.addOns || {};
+      account.addOns[id] = { ...(account.addOns[id] || {}), installed: true, enabled: true, connectionStatus: id === "weather" || id === "photos" ? "connected" : "disconnected", lastSync: id === "photos" ? "Stored on this mirror" : "" };
+      return account.addOns[id];
+    });
+    return json(res, 200, installed);
   }
   if (addonMatch && req.method === "DELETE") {
     const id = addonMatch[1];
     const addon = catalogEntry(id);
     if (!addon) return json(res, 404, { error: "That add-on is not available." });
     if (addon.preinstalled) return json(res, 409, { error: "This system add-on cannot be uninstalled." });
-    delete session.account.addOns[id];
-    if (session.account.tokens) delete session.account.tokens[id];
-    writeState(session.state);
+    updateAccount(session.id, (account) => {
+      if (account.addOns) delete account.addOns[id];
+      if (account.tokens) delete account.tokens[id];
+    });
     return json(res, 200, { installed: false });
   }
   const disconnectMatch = url.pathname.match(/^\/api\/addons\/([A-Za-z0-9_-]+)\/disconnect$/);
   if (disconnectMatch && req.method === "POST") {
     const id = disconnectMatch[1];
-    if (session.account.tokens) delete session.account.tokens[id];
-    session.account.addOns[id] = { ...(session.account.addOns[id] || {}), installed: true, enabled: true, connectionStatus: "disconnected", lastSync: "" };
-    writeState(session.state);
-    return json(res, 200, session.account.addOns[id]);
+    const disconnected = updateAccount(session.id, (account) => {
+      if (account.tokens) delete account.tokens[id];
+      account.addOns = account.addOns || {};
+      account.addOns[id] = { ...(account.addOns[id] || {}), installed: true, enabled: true, connectionStatus: "disconnected", lastSync: "" };
+      return account.addOns[id];
+    });
+    return json(res, 200, disconnected);
   }
 
   const connectMatch = url.pathname.match(/^\/api\/integrations\/(spotify|googleCalendar)\/connect$/);
@@ -496,6 +575,7 @@ async function api(req, res, url) {
     token.expiresAt = Date.now() + (token.expires_in || 3600) * 1000;
     const state = readState();
     const account = state.accounts[pending.accountId];
+    if (!account) return redirect(res, `/index.html?integration=${id}&status=failed`);
     account.tokens = account.tokens || {};
     account.tokens[id] = encrypt(token);
     account.addOns[id] = { installed: true, enabled: true, connectionStatus: "connected", lastSync: new Date().toISOString() };
@@ -505,8 +585,7 @@ async function api(req, res, url) {
 
   if (url.pathname === "/api/spotify/player" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const response = await fetch("https://api.spotify.com/v1/me/player", { headers: { Authorization: `Bearer ${token.access_token}` } });
       if (response.status === 204) return json(res, 200, { item: null });
@@ -515,8 +594,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === "/api/google/calendar/events" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "googleCalendar");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "googleCalendar");
       if (!token) return json(res, 409, { error: "Connect Google Calendar first." });
       const calendarUrl = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
       calendarUrl.search = new URLSearchParams({ timeMin: new Date().toISOString(), maxResults: "20", singleEvents: "true", orderBy: "startTime" }).toString();
@@ -529,8 +607,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === "/api/spotify/sdk-token" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const scopes = new Set(String(token.scope || "").split(/\s+/));
       if (!scopes.has("streaming")) return json(res, 409, { error: "Reconnect Spotify once to enable playback through Reflect OS.", code: "streaming_permission_required" });
@@ -541,8 +618,7 @@ async function api(req, res, url) {
     try {
       const query = String(url.searchParams.get("q") || "").trim();
       if (!query) return json(res, 400, { error: "Enter a song or artist." });
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const spotifyUrl = new URL("https://api.spotify.com/v1/search");
       spotifyUrl.search = new URLSearchParams({ q: query, type: "track", limit: "10" }).toString();
@@ -555,8 +631,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === "/api/spotify/recent" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const scopes = new Set(String(token.scope || "").split(/\s+/));
       if (!scopes.has("user-read-recently-played")) return json(res, 409, { error: "Reconnect Spotify once to show recently played tracks.", code: "recent_permission_required" });
@@ -570,8 +645,7 @@ async function api(req, res, url) {
   }
   if (url.pathname === "/api/spotify/player/transfer" && req.method === "POST") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const input = await body(req);
       if (!input.deviceId) return json(res, 400, { error: "Reflect OS player is not ready yet." });
@@ -585,8 +659,7 @@ async function api(req, res, url) {
   // mirror's own player), so Jarvis can send music somewhere that is actually switched on.
   if (url.pathname === "/api/spotify/devices" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const response = await fetch("https://api.spotify.com/v1/me/player/devices", { headers: { Authorization: `Bearer ${token.access_token}` } });
       const result = await response.json().catch(() => ({}));
@@ -597,8 +670,7 @@ async function api(req, res, url) {
   // Turns music down while Jarvis listens and talks, and back up afterwards.
   if (url.pathname === "/api/spotify/player/volume" && req.method === "POST") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const input = await body(req);
       const volume = Math.max(0, Math.min(100, Math.round(Number(input.volume))));
@@ -614,9 +686,10 @@ async function api(req, res, url) {
   }
   if (url.pathname === "/api/spotify/playlists" && req.method === "GET") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
+      const scopes = new Set(String(token.scope || "").split(/\s+/));
+      if (!scopes.has("playlist-read-private")) return json(res, 409, { error: "Reconnect Spotify once to show your playlists.", code: "playlist_permission_required" });
       const response = await fetch("https://api.spotify.com/v1/me/playlists?limit=30", { headers: { Authorization: `Bearer ${token.access_token}` } });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) return json(res, response.status, { error: result.error?.message || "Your playlists could not be loaded." });
@@ -627,8 +700,7 @@ async function api(req, res, url) {
   const playerMatch = url.pathname.match(/^\/api\/spotify\/player\/(play|pause|next|previous)$/);
   if (playerMatch && req.method === "POST") {
     try {
-      const token = await refreshProvider(session.account, "spotify");
-      writeState(session.state);
+      const token = await refreshProvider(session.id, "spotify");
       if (!token) return json(res, 409, { error: "Connect Spotify first." });
       const action = playerMatch[1];
       const method = action === "next" || action === "previous" ? "POST" : "PUT";
@@ -711,10 +783,12 @@ async function rawBody(req, limit) {
 
 async function assistantApi(req, res, url) {
   if (url.pathname === "/api/assistant/status" && req.method === "GET") {
-    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, serverTranscription: Boolean(assistantConfig.openaiKey) });
+    return json(res, 200, { configured: Boolean(assistantConfig.anthropicKey), name: assistantConfig.name, wakeWord: assistantConfig.wakeWord, serverVoice: Boolean(voiceProvider()), voiceProvider: assistantConfig.builtInVoice ? "built-in" : voiceProvider(), builtInVoice: assistantConfig.builtInVoice, preloadBuiltInVoice: assistantConfig.preloadBuiltInVoice, serverTranscription: Boolean(assistantConfig.openaiKey) });
   }
   if (req.method !== "POST") return json(res, 404, { error: "Not found" });
   if (!sameOriginRequest(req)) return json(res, 403, { error: "Forbidden" });
+  const limit = url.pathname.endsWith("/chat") ? 20 : url.pathname.endsWith("/transcribe") ? 30 : 60;
+  if (!rateAllowed(req, url.pathname, limit)) return json(res, 429, { error: "Jarvis is receiving too many requests. Wait a moment and try again." });
   const type = String(req.headers["content-type"] || "");
 
   if (url.pathname === "/api/assistant/chat") {
@@ -864,7 +938,10 @@ function handleRequest(req, res) {
   res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
   if (!allowedHost(req)) return json(res, 403, { error: "Forbidden" });
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
-  Promise.resolve(url.pathname.startsWith("/api/") ? api(req, res, url) : serveStatic(req, res, url)).catch((error) => json(res, 500, { error: error.message }));
+  Promise.resolve(url.pathname.startsWith("/api/") ? api(req, res, url) : serveStatic(req, res, url)).catch((error) => {
+    if (res.headersSent) return res.end();
+    return json(res, Number(error.status) || 500, { error: error.message });
+  });
 }
 
 if (require.main === module) {

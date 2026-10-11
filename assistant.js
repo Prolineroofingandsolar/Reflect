@@ -790,7 +790,8 @@
     const id = ++K.nextId;
     return new Promise((resolve, reject) => { K.waiting.set(id, { resolve, reject }); K.worker.postMessage({ id, ...message }); });
   }
-  // Loads the model as soon as the mirror starts, so the first reply doesn't wait for it.
+  // Loading is optional at startup because the model can consume a large share of a Raspberry Pi's
+  // memory. With preloading off it is loaded only when Jarvis first needs to speak.
   function warmKokoro() {
     if (!A.status?.builtInVoice || K.ready || K.failed) return K.loading;
     if (K.loading) return K.loading;
@@ -1228,7 +1229,10 @@
   async function init() {
     try { A.status = await api("/api/assistant/status"); }
     catch { root.hidden = true; return; }
-    warmKokoro();
+    if(A.status.preloadBuiltInVoice){
+      const preload=()=>warmKokoro();
+      if("requestIdleCallback" in window)requestIdleCallback(preload,{timeout:15000});else setTimeout(preload,8000);
+    }
     el(".jv-name").textContent = name().toUpperCase().split("").join(" ");
     typeInput.placeholder = `Or type to ${name()}…`;
     mini.setAttribute("aria-label", `Talk to ${name()}`);

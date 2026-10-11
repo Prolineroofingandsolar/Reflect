@@ -1,0 +1,25 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: smarthome/package-lock.json
+      - name: Check server and browser scripts
+        run: npm run check
+      - name: Run server smoke tests
+        run: npm test
+      - name: Build the 3D house
+        run: npm ci --prefix smarthome && npm run build --prefix smarthome

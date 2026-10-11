@@ -10,9 +10,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     target: "es2020",
-    minify: "esbuild",
+    minify: "oxc",
     cssCodeSplit: false,
     lib: { entry: "src/main.jsx", formats: ["es"], fileName: () => "smarthome.js" },
-    rollupOptions: { output: { inlineDynamicImports: true, assetFileNames: (a) => (a.name?.endsWith(".css") ? "smarthome.css" : "[name][extname]") } }
+    rollupOptions: { output: { codeSplitting: false, assetFileNames: (a) => (a.name?.endsWith(".css") ? "smarthome.css" : "[name][extname]") } }
   }
 });

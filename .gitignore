@@ -4,5 +4,6 @@ reflect-os.config.json
 node_modules/
 package.json
 package-lock.json
+!package.json
 !smarthome/package.json
 !smarthome/package-lock.json

@@ -82,9 +82,9 @@ let profile = loadProfile();
 let hideTimer, longPressTimer, slideshowTimer, photoDb;
 let touchStartX = 0, isEditing = false, selectedWidget = "clock", calendarView = "day", taskFilter = "today", storeTab = "discover", currentPhoto = 0;
 let photoRecords = [], photoUrls = new Map();
-let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
+let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifyNeedsPlaylistPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
 let homeAssistantEntities = [];
-let spotifyPlaylists = [];
+let spotifyPlaylists = [], spotifyPlaylistsError = "";
 let draggingWidget = null;
 
 function clone(value){ return JSON.parse(JSON.stringify(value)); }
@@ -633,7 +633,7 @@ function selectWeatherLocation(place){profile.weather={place:[place.name,place.r
 function fmtMs(ms){if(!ms&&ms!==0)return "";const s=Math.floor(ms/1000);return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;}
 function renderSpotifyPage(){
   const status=$("spotifyStatus"),button=$("spotifyConnect"),useDevice=$("spotifyUseDevice"),library=$("spotifyLibrary"),device=$("spotifyDeviceStatus"),art=$("spotifyArtwork");
-  const needsPermission=spotifyNeedsPlaybackPermission||spotifyNeedsRecentPermission;
+  const needsPermission=spotifyNeedsPlaybackPermission||spotifyNeedsRecentPermission||spotifyNeedsPlaylistPermission;
   const isConn=connected("spotify");
   if(status)status.textContent=!addOnInstalled("spotify")?"Connect Spotify in Settings":needsPermission?"Spotify needs reconnecting":isConn?`Spotify · ${profile.spotify.deviceName||"Reflect OS Mirror"}`:"Spotify · not connected";
   if(button)button.textContent=needsPermission?"Reconnect":isConn?"Disconnect":"Connect";
@@ -678,12 +678,13 @@ function waitForSpotifyDevice(timeout=12000){ensureSpotifySdk();return new Promi
 async function playSpotifyTrack(track){if(!track?.uri)return;$("spotifyDeviceStatus").textContent=`Starting ${track.name}`;try{if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/play",{method:"POST",body:JSON.stringify({uri:track.uri,deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;sampleData.track={...track,artist:track.artists,progress:0,playing:true};renderSpotifyPage();renderHome();setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function loadSpotifyPlaylists(){
   if(!connected("spotify"))return;
-  try{const data=await api("/api/spotify/playlists");spotifyPlaylists=data.playlists||[];renderSpotifyPlaylists();}
-  catch{}
+  try{const data=await api("/api/spotify/playlists");spotifyPlaylists=data.playlists||[];spotifyPlaylistsError="";spotifyNeedsPlaylistPermission=false;renderSpotifyPlaylists();renderSpotifyPage();}
+  catch(error){spotifyPlaylists=[];spotifyPlaylistsError=error.message;spotifyNeedsPlaylistPermission=error.message.includes("Reconnect Spotify");if(spotifyNeedsPlaylistPermission)$("spotifySetupText").textContent=error.message;renderSpotifyPlaylists();renderSpotifyPage();}
 }
 function renderSpotifyPlaylists(){
   const list=$("spotifyPlaylists");if(!list)return;
   if(!connected("spotify")){list.innerHTML='<li class="playlist-empty">Connect Spotify to see your playlists.</li>';return;}
+  if(spotifyPlaylistsError){list.innerHTML=`<li class="playlist-empty">${esc(spotifyPlaylistsError)}</li>`;return;}
   if(!spotifyPlaylists.length){list.innerHTML='<li class="playlist-empty">No playlists found yet.</li>';return;}
   list.innerHTML=spotifyPlaylists.map((p,i)=>`<li><button type="button" class="playlist-item ${p.uri===profile.spotify.playlistUri?"is-default":""}" data-playlist="${i}"><span>${esc(p.name)}</span><small>${p.tracks} track${p.tracks===1?"":"s"}${p.uri===profile.spotify.playlistUri?" · default":""}</small></button></li>`).join("");
   list.querySelectorAll("[data-playlist]").forEach(btn=>btn.addEventListener("click",()=>playSpotifyContext(spotifyPlaylists[Number(btn.dataset.playlist)].uri)));
@@ -710,7 +711,7 @@ function setEditing(value){isEditing=value;document.body.classList.toggle("is-ed
 function openItemDialog(kind){const dialog=$("itemDialog"),fields=$("itemFields"),today=new Date().toISOString().slice(0,10);dialog.dataset.kind=kind;$("itemDialogEyebrow").textContent=kind==="task"?"Focus list":"Device calendar";$("itemDialogTitle").textContent=kind==="task"?"Add task":"Add event";fields.innerHTML=kind==="task"?`<label><span>Task</span><input name="title" required maxlength="80" autofocus></label><label><span>Category</span><select name="category"><option>Home</option><option>Work</option><option>Health</option><option>Personal</option></select></label><label><span>When</span><select name="when"><option>Today</option><option>Upcoming</option></select></label><label><span>Priority</span><select name="priority"><option value="">Normal</option><option value="high">High</option></select></label>`:`<label><span>Event</span><input name="title" required maxlength="80" autofocus></label><label><span>Date</span><input name="date" type="date" value="${today}" required></label><label><span>Time</span><input name="time" type="time" value="09:00" required></label><label><span>Location</span><input name="location" maxlength="80"></label>`;dialog.showModal();setTimeout(()=>fields.querySelector("input")?.focus(),0);}
 function addItem(event){event.preventDefault();const dialog=$("itemDialog"),data=Object.fromEntries(new FormData(event.currentTarget));if(dialog.dataset.kind==="task")sampleData.tasks.unshift({id:crypto.randomUUID(),title:data.title.trim(),category:data.category,when:data.when,priority:data.priority==="high",done:false});else sampleData.events.push({id:crypto.randomUUID(),title:data.title.trim(),date:data.date,time:data.time,location:data.location.trim(),source:"device"});saveDeviceData();dialog.close();renderTaskPage();renderCalendarPage();renderHome();}
 async function signIn(){try{const data=await api("/api/session",{method:"POST",body:JSON.stringify({name:$("accountName").value,email:$("accountEmail").value,pin:$("accountPin").value})});profile.account={signedIn:true,...data.account};$("accountPin").value="";profile.personName=data.account.name.split(" ")[0];Object.keys(addOnRegistry).forEach(id=>{if(data.account.addOns?.[id])profile.addOns[id]={...profile.addOns[id],...data.account.addOns[id]};});saveProfile();await syncDeviceData();applyProfile();renderSettings();renderConnections();renderHome();renderCalendarPage();renderTaskPage();renderWidgetSettings();loadGoogleCalendar();setMessage("Signed in securely on this mirror.");}catch(error){setMessage(error.message,true);}}
-async function signOut(){try{await api("/api/session",{method:"DELETE"});profile.account.signedIn=false;profile.account.id="";Object.keys(addOnRegistry).forEach(id=>{if(addOnRegistry[id].requiresConnection&&profile.addOns[id])profile.addOns[id].connectionStatus="disconnected";});spotifyDeviceId="";spotifyActiveDeviceId="";spotifyRecentTracks=[];spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;if(spotifyPlayer){spotifyPlayer.disconnect();spotifyPlayer=null;}saveProfile();applyAvailability();renderSettings();renderConnections();renderSpotifyPage();renderSpotifyRecent();renderHome();setMessage("Signed out of this mirror.");}catch(error){setMessage(error.message,true);}}
+async function signOut(){try{await api("/api/session",{method:"DELETE"});profile.account.signedIn=false;profile.account.id="";Object.keys(addOnRegistry).forEach(id=>{if(addOnRegistry[id].requiresConnection&&profile.addOns[id])profile.addOns[id].connectionStatus="disconnected";});spotifyDeviceId="";spotifyActiveDeviceId="";spotifyRecentTracks=[];spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;spotifyNeedsPlaylistPermission=false;if(spotifyPlayer){spotifyPlayer.disconnect();spotifyPlayer=null;}saveProfile();applyAvailability();renderSettings();renderConnections();renderSpotifyPage();renderSpotifyRecent();renderHome();setMessage("Signed out of this mirror.");}catch(error){setMessage(error.message,true);}}
 async function restoreSession(){try{const data=await api("/api/session");if(data.signedIn){profile.account={signedIn:true,...data.account};Object.keys(addOnRegistry).forEach(id=>{if(data.account.addOns?.[id])profile.addOns[id]={...profile.addOns[id],...data.account.addOns[id]};});}else profile.account.signedIn=false;saveProfile();}catch{profile.account.signedIn=false;}}
 
 Object.entries(profileInputs).forEach(([key,input])=>input?.addEventListener("input",()=>{if(key==="spotifyWidgetMode")profile.spotify.widgetMode=input.value;else if(key==="spotifyDevice")profile.spotify.deviceName=input.value;else if(key==="spotifyAutoplay")profile.spotify.autoplay=input.value==="true";else if(key!=="weatherPlace")profile[key]=key==="navTimeout"?Number(input.value):input.value;saveProfile();applyProfile();renderHome();renderSpotifyPage();}));
@@ -725,10 +726,10 @@ $("warmthRange")?.addEventListener("input",()=>{profile.warmth=Number($("warmthR
 document.querySelectorAll("#appearanceSeg [data-appearance]").forEach(b=>b.addEventListener("click",()=>{profile.theme=b.dataset.appearance;saveProfile();applyProfile();renderSettings();renderHome();}));
 $("nightMode")?.addEventListener("click",()=>{profile.nightMode=!profile.nightMode;saveProfile();applyDisplay();renderSettings();});
 $("dashEditLayout")?.addEventListener("click",()=>{showView("home");setEditing(true);});
-$("dashUpdate")?.addEventListener("click",()=>{const s=$("updateStatus");if(s)s.textContent="Checking…";watchForUpdates().then(()=>{if(s)s.textContent=appVersionText?`v${appVersionText}`:"Up to date";});});
+$("dashUpdate")?.addEventListener("click",checkForUpdates);
 $("settingsSearch")?.addEventListener("input",()=>{const q=$("settingsSearch").value.trim().toLowerCase();document.querySelectorAll(".dash-card").forEach(c=>{c.hidden=Boolean(q)&&!c.textContent.toLowerCase().includes(q);});});
 $("settingsWeatherOpen")?.addEventListener("click",()=>showView("weather"));
-$("spotifyConnect").addEventListener("click",()=>connected("spotify")&&!spotifyNeedsPlaybackPermission&&!spotifyNeedsRecentPermission?disconnectAddOn("spotify"):connectConnection("spotify"));$("spotifyOpenAddons").addEventListener("click",()=>{showView("settings");openSettingsPage("connections");});$("spotifyPrevious").addEventListener("click",()=>runSpotifyAction("previous"));$("spotifyNext").addEventListener("click",()=>runSpotifyAction("next"));$("spotifyPlay").addEventListener("click",()=>runSpotifyAction("play"));
+$("spotifyConnect").addEventListener("click",()=>connected("spotify")&&!spotifyNeedsPlaybackPermission&&!spotifyNeedsRecentPermission&&!spotifyNeedsPlaylistPermission?disconnectAddOn("spotify"):connectConnection("spotify"));$("spotifyOpenAddons").addEventListener("click",()=>{showView("settings");openSettingsPage("connections");});$("spotifyPrevious").addEventListener("click",()=>runSpotifyAction("previous"));$("spotifyNext").addEventListener("click",()=>runSpotifyAction("next"));$("spotifyPlay").addEventListener("click",()=>runSpotifyAction("play"));
 $("spotifyUseDevice").addEventListener("click",playSpotifyHere);
 $("spotifySearchForm")?.addEventListener("submit",searchSpotify);$("spotifyRefreshRecent")?.addEventListener("click",loadSpotifyRecent);$("spotifyVolume")?.addEventListener("input",event=>{if(spotifyPlayer)spotifyPlayer.setVolume(Number(event.target.value)/100);});
 $("weatherSearchForm")?.addEventListener("submit",searchWeatherLocations);
@@ -747,10 +748,16 @@ document.addEventListener("mousemove",showNav);document.addEventListener("click"
 document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if(event.key==="Escape"){if(settingsPage)closeSettingsPage();else setEditing(false);return;}if(event.key.toLowerCase()==="e"){setEditing(!isEditing);return;}const view={h:"home",c:"calendar",t:"tasks",m:"music",w:"weather",s:"homekit",",":"settings"}[event.key.toLowerCase()];if(view)showView(view);});
 
 let bootVersion=null;
+async function checkForUpdates(){
+  const status=$("updateStatus");if(status)status.textContent="Checking GitHub…";
+  try{const result=await api("/api/update-status");if(status)status.textContent=result.updateAvailable?`v${result.latest} available`:`v${result.installed} · current`;}
+  catch(error){if(status)status.textContent=appVersionText?`v${appVersionText} installed`:"Check unavailable";setMessage(error.message,true);}
+}
 async function watchForUpdates(){
   try{const health=await api("/api/health");
     if(!health.version)return;
     appVersionText=health.version;
+    const update=$("updateStatus");if(update&&update.textContent==="Check GitHub")update.textContent=`v${health.version} installed`;
     const label=$("appVersion");if(label)label.textContent=`v${health.version}`;
     const about=$("aboutVersion");if(about)about.textContent=`v${health.version}`;
     if(bootVersion===null){bootVersion=health.version;return;}
@@ -825,5 +832,5 @@ $("setupNext")?.addEventListener("click",setupAdvance);
 $("setupBack")?.addEventListener("click",()=>{if(setupStep>0){setupStep-=1;setupError="";renderSetup();}});
 $("setupSkip")?.addEventListener("click",completeSetup);
 
-async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(()=>{if(!homeStreamLive)loadHomeAssistant();},30000);watchForUpdates();setInterval(watchForUpdates,120000);}
+async function boot(){loadDeviceData();await loadCatalog();await restoreSession();await syncDeviceData();try{await loadPhotos();}catch(error){setMessage(`Photos are unavailable: ${error.message}`,true);}applyProfile();applyAvailability();renderHome();renderWidgetSettings();renderSettings();renderSpotifyPage();renderSpotifyRecent();renderCalendarPage();renderTaskPage();renderWeatherPage();renderHomeKit();const params=new URLSearchParams(location.search);if(params.get("status")==="connected"){const id=params.get("integration");if(profile.addOns[id]){profile.addOns[id].connectionStatus="connected";profile.addOns[id].error="";spotifyNeedsPlaybackPermission=false;spotifyNeedsRecentPermission=false;spotifyNeedsPlaylistPermission=false;saveProfile();setMessage(`${addOnRegistry[id].name} connected.`);}history.replaceState({},"",location.pathname);}else if(params.get("status")==="failed"){setMessage("The account connection was not completed.",true);history.replaceState({},"",location.pathname);}showView(profile.defaultView,false);if(needsSetup())openSetup();loadWeather();loadGoogleCalendar();loadSpotify();loadSpotifyRecent();loadSpotifyPlaylists();loadHomeAssistant();ensureSpotifySdk();setInterval(updateClock,1000);setInterval(loadWeather,900000);setInterval(loadGoogleCalendar,300000);setInterval(loadSpotify,30000);setInterval(()=>{if(!homeStreamLive)loadHomeAssistant();},30000);watchForUpdates();setInterval(watchForUpdates,120000);}
 boot();

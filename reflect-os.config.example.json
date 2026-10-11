@@ -9,6 +9,7 @@
   "assistantWakeWord": true,
   "openaiApiKey": "",
   "builtInVoice": "",
+  "preloadBuiltInVoice": false,
   "voiceStudioUrl": "",
   "voiceStudioVoice": "",
   "elevenLabsApiKey": "",
