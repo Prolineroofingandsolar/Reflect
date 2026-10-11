@@ -13,8 +13,9 @@ if [ -n "$OLD_PID" ]; then
 fi
 
 cd "$APP_ROOT"
-node server.js >/tmp/reflect-os-server.log 2>&1 &
+nohup node server.js </dev/null >/tmp/reflect-os-server.log 2>&1 &
 echo $! >/tmp/reflect-os-server.pid
+disown
 sleep 0.7
 
 if [ -d "/Applications/Google Chrome.app" ]; then
