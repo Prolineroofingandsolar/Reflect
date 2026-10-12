@@ -219,7 +219,7 @@ async function refreshProvider(accountRecord, providerId) {
 }
 
 // The devices the mirror shows, and the parts of each one it needs, in one compact shape.
-const haDomains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "script", "sensor", "binary_sensor", "media_player", "camera", "alarm_control_panel"]);
+const haDomains = new Set(["light", "switch", "climate", "lock", "cover", "fan", "scene", "script", "sensor", "binary_sensor", "media_player", "camera", "alarm_control_panel", "event"]);
 function haEntity(entity, areas) {
   const domain = String(entity?.entity_id || "").split(".")[0];
   if (!haDomains.has(domain)) return null;
@@ -239,7 +239,9 @@ function haEntity(entity, areas) {
     colorTemp: a.color_temp_kelvin ?? null,
     canColor: modes.some((m) => ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(m)),
     canTemp: modes.includes("color_temp"),
-    canDim: modes.some((m) => m !== "onoff")
+    canDim: modes.some((m) => m !== "onoff"),
+    // Event entities (a doorbell press, motion): the state is when it last happened, this is what.
+    eventType: domain === "event" ? String(a.event_type || "") : ""
   };
 }
 
@@ -1126,7 +1128,7 @@ async function assistantApi(req, res, url) {
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".glb": "model/gltf-binary" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json", "devices.js", "vendor/qrcode.js"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json", "devices.js", "vendor/qrcode.js", "doorbell.js"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");

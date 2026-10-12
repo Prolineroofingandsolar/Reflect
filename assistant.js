@@ -1336,6 +1336,7 @@
     }).join("");
     shownTimers = new Set(list.map((t) => t.id));
   }
+  window.ReflectAssistant = { announce: (text) => announce(text) };
   function announce(text) {
     if (A.busy || A.state === "speaking") return setTimeout(() => announce(text), 1500);
     openStage();
