@@ -3166,3 +3166,18 @@ body.theme-light .dv-text, body.theme-light .dv-wait p, body.theme-light .dv-don
 .ha-heat-set button:hover, .ha-heat-set button:focus-visible { background: var(--accent-soft); }
 .ha-heat-set strong { color: var(--accent); min-width: 88px; display: inline-block; }
 .ha-heat-note { color: var(--muted); min-height: 1.2em; margin: 0 0 18px; }
+
+/* One Smart Home screen, two views: the 3D house and the room tiles. */
+.home-switch { display: inline-flex; padding: 4px; gap: 4px; border: 1px solid rgba(var(--accent-rgb), 0.35); border-radius: 999px; background: rgba(0, 10, 14, 0.75); backdrop-filter: blur(8px); }
+.home-switch button { font: inherit; font-size: 14px; letter-spacing: .06em; color: var(--muted); background: transparent; border: 0; border-radius: 999px; padding: 8px 18px; cursor: pointer; }
+.home-switch button.is-active { color: #001017; background: var(--accent); box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5); }
+.home-switch button:not(.is-active):hover { color: var(--text); }
+.home-switch.is-floating { position: absolute; top: 236px; left: 38px; z-index: 30; }
+#view-homekit .home-switch { margin-top: 14px; }
+@media (max-width: 700px) { .home-switch.is-floating { top: auto; bottom: 84px; left: 50%; transform: translateX(-50%); } }
+#view-homekit .page-header { gap: 16px; flex-wrap: wrap; align-items: center; }
+
+.ha-media-row { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 6px 0 16px; color: var(--muted); }
+.ha-media-row button { width: 52px; height: 52px; border-radius: 50%; border: 1px solid rgba(var(--accent-rgb), 0.5); background: transparent; color: #fff; font-size: 20px; cursor: pointer; }
+.ha-media-row button.is-main { width: 64px; height: 64px; font-size: 24px; background: var(--accent-soft); }
+.ha-media-row button:hover, .ha-media-row button:focus-visible { background: var(--accent-soft); }

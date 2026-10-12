@@ -122,6 +122,7 @@ function mergeProfile(saved={}){
   }
   // Light was the old default and washes out behind mirror glass; move saved profiles to Dark once.
   if(Number(saved.version||0)<6 && next.theme==="light") next.theme="dark";
+  if(next.defaultView==="house3d"||next.defaultView==="homekit")next.defaultView="smarthome";
   if(!document.querySelector(`[data-view="${CSS.escape(next.defaultView)}"]`)) next.defaultView="home";
   return next;
 }
@@ -469,7 +470,7 @@ function renderHomeKit(){
   if(status)status.textContent=`${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No devices yet. Add some from the Devices screen.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
-  const interactive=new Set(["light","switch","fan","lock","cover","scene","climate"]);
+  const interactive=new Set(["light","switch","fan","lock","cover","scene","climate","media_player"]);
   const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
   const rooms=new Map();
   sorted.forEach(e=>{const key=e.area||"Other";if(!rooms.has(key))rooms.set(key,{id:e.areaId,items:[]});rooms.get(key).items.push(e);});
@@ -481,7 +482,7 @@ function renderHomeKit(){
   grid.innerHTML=roomNames.map(name=>{const room=rooms.get(name),lights=room.items.filter(e=>e.domain==="light"),anyOn=lights.some(entityIsOn);
     const all=room.id&&lights.length?`<button type="button" class="ha-room-all ${anyOn?"is-on":""}" data-ha-room="${esc(room.id)}" data-on="${anyOn?"1":""}">${anyOn?"All off":"All on"}</button>`:"";
     return `<section class="ha-room${fresh?" is-new":""}"><header class="ha-room-head"><h2>${esc(name)}</h2><span>${lights.length?`${lights.filter(entityIsOn).length}/${lights.length} lights on`:""}</span>${all}</header><div class="ha-room-grid">${room.items.map(tile).join("")}</div></section>`;}).join("");
-  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;if(btn.dataset.haToggle.startsWith("climate."))return openHeatPanel(btn.dataset.haToggle);toggleEntity(btn.dataset.haToggle);}));
+  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;if(btn.dataset.haToggle.startsWith("climate."))return openHeatPanel(btn.dataset.haToggle);if(btn.dataset.haToggle.startsWith("media_player."))return openMediaPanel(btn.dataset.haToggle);toggleEntity(btn.dataset.haToggle);}));
   grid.querySelectorAll("[data-ha-adjust]").forEach(el=>{const open=ev=>{ev.stopPropagation();openLightPanel(el.dataset.haAdjust);};el.addEventListener("click",open);el.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" ")open(ev);});});
   grid.querySelectorAll("[data-ha-room]").forEach(btn=>btn.addEventListener("click",()=>callHomeAssistant(btn.dataset.on?"light.turn_off":"light.turn_on",{area_id:btn.dataset.haRoom})));
 }
@@ -552,6 +553,27 @@ function openHeatPanel(id){
   }));
   panel.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",()=>{callHomeAssistant("climate.set_hvac_mode",{entity_id:e.id,hvac_mode:b.dataset.mode});panel.close();}));
   panel.querySelector("#haHeatDone").addEventListener("click",()=>panel.close());
+  if(!panel.open)panel.showModal();
+}
+
+// TVs and speakers: play or pause, volume, and power.
+function openMediaPanel(id){
+  const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
+  let panel=$("haMediaPanel");
+  if(!panel){panel=document.createElement("dialog");panel.id="haMediaPanel";panel.className="ha-light-panel ha-media-panel";document.body.appendChild(panel);panel.addEventListener("click",ev=>{if(ev.target===panel)panel.close();});}
+  const on=entityIsOn(e),m=e.media||{};
+  panel.innerHTML=`<p class="eyebrow">${esc(e.area||"TV")}</p><h2>${esc(e.name)}</h2>
+    ${m.title?`<p class="ha-heat-note">${esc(m.title)}${m.artist?` · ${esc(m.artist)}`:""}</p>`:""}
+    ${on?`<div class="ha-media-row"><button type="button" data-m="media_player.media_previous_track" aria-label="Previous">⏮</button><button type="button" class="is-main" data-m="media_player.media_play_pause" aria-label="Play or pause">⏯</button><button type="button" data-m="media_player.media_next_track" aria-label="Next">⏭</button></div>
+    <div class="ha-media-row"><button type="button" data-m="media_player.volume_down" aria-label="Volume down">−</button><span>Volume</span><button type="button" data-m="media_player.volume_up" aria-label="Volume up">+</button><button type="button" data-m="mute" aria-label="Mute">🔇</button></div>`:""}
+    <div class="ha-panel-actions"><button type="button" class="ghost-button" data-m="${on?"media_player.turn_off":"media_player.turn_on"}">${on?"Turn off":"Turn on"}</button><button type="button" class="store-action" data-close-panel>Done</button></div>`;
+  panel.querySelectorAll("[data-m]").forEach(b=>b.addEventListener("click",()=>{
+    const svc=b.dataset.m;
+    if(svc==="mute")return callHomeAssistant("media_player.volume_mute",{entity_id:e.id,is_volume_muted:true});
+    callHomeAssistant(svc,{entity_id:e.id});
+    if(svc.endsWith("turn_off")||svc.endsWith("turn_on"))panel.close();
+  }));
+  panel.querySelector("[data-close-panel]").addEventListener("click",()=>panel.close());
   if(!panel.open)panel.showModal();
 }
 
@@ -755,7 +777,10 @@ async function playSpotifyContext(uri){
 async function playSpotifyHere(){try{$("spotifyDeviceStatus").textContent="Preparing the player on this mirror";if(spotifyPlayer)await spotifyPlayer.activateElement();await waitForSpotifyDevice();await spotifyPlayer.activateElement();await api("/api/spotify/player/transfer",{method:"POST",body:JSON.stringify({deviceId:spotifyDeviceId})});spotifyActiveDeviceId=spotifyDeviceId;profile.spotify.deviceName="Reflect OS Mirror";saveProfile();$("spotifyDeviceStatus").textContent="Playing through this mirror";setTimeout(loadSpotify,500);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 async function runSpotifyAction(action){if(!connected("spotify")){showView("settings");openSettingsPage("connections");return;}if(action==="play"&&spotifyActiveDeviceId!==spotifyDeviceId){if(sampleData.track.uri&&spotifyActiveDeviceId)return playSpotifyHere();const defaultUri=profile.spotify.playlistUri||spotifyPlaylists[0]?.uri;if(defaultUri)return playSpotifyContext(defaultUri);if(spotifyRecentTracks[0])return playSpotifyTrack(spotifyRecentTracks[0]);}try{await waitForSpotifyDevice();await spotifyPlayer.activateElement();if(action==="play")await spotifyPlayer.togglePlay();else if(action==="next")await spotifyPlayer.nextTrack();else await spotifyPlayer.previousTrack();setTimeout(loadSpotify,350);}catch(error){$("spotifyDeviceStatus").textContent=error.message;}}
 
-function showView(name,reveal=true){document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===name;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===name));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
+// House (3D) and Rooms (tiles) are two ways of looking at one Smart Home screen; it opens on whichever was used last.
+const homeModeKey="reflect-home-mode";
+function homeMode(){try{return localStorage.getItem(homeModeKey)==="homekit"?"homekit":"house3d";}catch{return "house3d";}}
+function showView(name,reveal=true){if(name==="smarthome")name=homeMode();if(name==="house3d"||name==="homekit"){try{localStorage.setItem(homeModeKey,name);}catch{}document.querySelectorAll("[data-home-mode]").forEach(b=>{const on=b.dataset.homeMode===name;b.classList.toggle("is-active",on);b.setAttribute("aria-selected",String(on));});}const navName=name==="house3d"||name==="homekit"?"smarthome":name;document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===navName;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===navName));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -767,6 +792,7 @@ async function restoreSession(){try{const data=await api("/api/session");if(data
 
 Object.entries(profileInputs).forEach(([key,input])=>input?.addEventListener("input",()=>{if(key==="spotifyWidgetMode")profile.spotify.widgetMode=input.value;else if(key==="spotifyDevice")profile.spotify.deviceName=input.value;else if(key==="spotifyAutoplay")profile.spotify.autoplay=input.value==="true";else if(key!=="weatherPlace")profile[key]=key==="navTimeout"?Number(input.value):input.value;saveProfile();applyProfile();renderHome();renderSpotifyPage();}));
 navItems.forEach(item=>item.addEventListener("click",()=>showView(item.dataset.view)));
+document.querySelectorAll("[data-home-mode]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.homeMode,false)));
 $("signInAccount").addEventListener("click",signIn);$("signOutAccount").addEventListener("click",signOut);
 $("settingsBack")?.addEventListener("click",closeSettingsPage);
 $("appearanceMode")?.addEventListener("change",()=>{profile.theme=$("appearanceMode").value;saveProfile();applyProfile();renderHome();renderSettings();});
