@@ -396,6 +396,31 @@ async function connectHomeAssistant(event){
     await loadHomeAssistant();showView("homekit");setMessage("Home Assistant connected.");
   }catch(error){$("haDialogError").textContent=error.message;}
 }
+// Hue pairing keeps asking the bridge for about 40 seconds, so the button can be pressed before or after clicking.
+let huePairing=false;
+async function connectHue(){
+  if(huePairing)return;
+  huePairing=true;
+  const status=$("hueStatus"),button=$("hueConnect"),bridge=$("hueBridge")?.value.trim()||"",until=Date.now()+40000;
+  $("haDialogError").textContent="";button.disabled=true;status.textContent="Looking for your Hue Bridge…";
+  try{
+    while(Date.now()<until){
+      const response=await fetch("/api/integrations/hue/pair",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({bridge})});
+      const data=await response.json().catch(()=>({}));
+      if(response.ok){
+        profile.addOns.smartHome={...profile.addOns.smartHome,...data,error:""};
+        profile.widgets.smartHome.visible=true;saveProfile();$("haForm").reset();status.textContent="";$("haDialog").close();
+        applyAvailability();renderConnections();renderWidgetSettings();renderSettings();
+        await loadHomeAssistant();showView("homekit");setMessage("Philips Hue connected.");return;
+      }
+      if(response.status!==428)throw new Error(data.error||"Hue couldn't connect.");
+      status.textContent=`Found it. Now press the round button on top of the Hue Bridge… (${Math.ceil((until-Date.now())/1000)}s)`;
+      await new Promise(r=>setTimeout(r,2500));
+    }
+    throw new Error("The bridge button wasn't pressed in time. Press it, then click Connect Hue again.");
+  }catch(error){status.textContent="";$("haDialogError").textContent=error.message;}
+  finally{huePairing=false;button.disabled=false;}
+}
 async function loadHomeAssistant(){
   if(!connected("smartHome")){renderHomeKit();closeHomeStream();return;}
   try{const data=await api("/api/homeassistant/states");homeAssistantEntities=data.entities||[];renderHomeKit();renderHome();openHomeStream();homeListeners.forEach(fn=>{try{fn(null);}catch{}});}
@@ -434,15 +459,15 @@ async function toggleEntity(id){
 function renderHomeKit(){
   const grid=$("homekitGrid");if(!grid)return;
   const status=$("homekitStatus"),connectBtn=$("homekitConnect");
-  if(connectBtn){connectBtn.hidden=false;connectBtn.textContent=connected("smartHome")?"Disconnect":"Connect Home Assistant";}
+  if(connectBtn){connectBtn.hidden=false;connectBtn.textContent="Add devices";}
   if(!connected("smartHome")){
-    if(status)status.textContent=addOnInstalled("smartHome")?"Connect your Home Assistant server":"Install Smart Home from Add-ons";
-    grid.innerHTML=`<div class="homekit-empty"><p>Connect Home Assistant to control lights, climate, locks and scenes from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Connect Home Assistant</button></div>`;
-    $("homekitConnectCta")?.addEventListener("click",()=>connectAddOn("smartHome"));
+    if(status)status.textContent="Nothing connected yet";
+    grid.innerHTML=`<div class="homekit-empty"><p>Add your lights, heating, plugs, speakers and cameras to control them from the mirror.</p><button class="store-action" type="button" id="homekitConnectCta">Add devices</button></div>`;
+    $("homekitConnectCta")?.addEventListener("click",()=>showView("devices"));
     return;
   }
-  if(status)status.textContent=`Home Assistant · ${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
-  if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No supported devices were found in Home Assistant.</p></div>`;return;}
+  if(status)status.textContent=`${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
+  if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No devices yet. Add some from the Devices screen.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
   const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
   const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
@@ -739,7 +764,7 @@ $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask")
 $("affirmationMode")?.addEventListener("change",()=>{affirmationIndex=0;profile.affirmations.mode=$("affirmationMode").value;saveProfile();renderHome();});
 $("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.interval=Number($("affirmationInterval").value);saveProfile();restartAffirmations();});
 $("affirmationCustom")?.addEventListener("input",()=>{affirmationIndex=0;profile.affirmations.custom=$("affirmationCustom").value.split("\n").map(line=>line.trim()).filter(Boolean);saveProfile();renderHome();});
-$("haForm")?.addEventListener("submit",connectHomeAssistant);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>connected("smartHome")?disconnectAddOn("smartHome"):connectConnection("smartHome"));
+$("haForm")?.addEventListener("submit",connectHomeAssistant);$("hueConnect")?.addEventListener("click",connectHue);$("haCancel")?.addEventListener("click",()=>$("haDialog").close());$("homekitConnect")?.addEventListener("click",()=>showView("devices"));
 document.querySelectorAll("[data-home-device]").forEach(button=>button.addEventListener("click",()=>button.classList.toggle("is-active")));
 $("homeEditFab")?.addEventListener("click",()=>setEditing(true));
 $("saveLayout").addEventListener("click",()=>setEditing(false));$("resetLayout").addEventListener("click",()=>{const account=profile.account,addOns=profile.addOns,photos=profile.photos;profile=clone(defaultProfile);profile.account=account;profile.addOns=addOns;profile.photos=photos;saveProfile();applyProfile();renderHome();renderWidgetSettings();});

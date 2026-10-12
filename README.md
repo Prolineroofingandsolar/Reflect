@@ -20,11 +20,19 @@ The first time Reflect OS opens on a device, a short setup wizard collects your 
 
 Add an Affirmations widget to the home screen from Settings or edit mode. Choose built-in affirmations, inspirational quotes, both, or your own lines, and set how often they rotate. Custom lines are entered one per line in Settings and stay on the device.
 
+## Smart Devices
+
+Open **Devices** to add a smart home brand: lights, plugs, heating, speakers, TVs, cameras, locks and robot hoovers from around 30 brands, plus any **Matter** device (scan or type the code on the box). Every brand works the same way: tap it, follow the short steps on the mirror (press a button, sign in, or type a code) and its devices appear on the Smart Home screen, in the 3D house and in Jarvis. Devices found on your Wi-Fi are listed at the top, ready to add. After connecting, put each device in a room.
+
+Behind the scenes this uses the **home engine**, a Home Assistant that runs hidden on the mirror. Install it once with `bash scripts/install-home-engine.sh` (the Raspberry Pi installer runs it for you). The mirror finds it at `http://127.0.0.1:8123`, sets it up the first time and keeps its key in `data/home-engine.json`; nobody needs to open Home Assistant. Change the address with `homeEngineUrl` in `reflect-os.config.json` (or `""` to turn it off). On the Raspberry Pi it runs in Docker with a Matter server beside it; on a Mac it runs as a background app, without Matter. The brand list is `smart-devices.json`: each brand names the Home Assistant integration that pairs it.
+
 ## Smart Home (Home Assistant)
+
+**Philips Hue without Home Assistant:** in Smart Home, click Connect, press the round button on top of the Hue Bridge and click **Connect Hue**. The mirror finds the bridge on your Wi-Fi (or type its IP address) and pairs with it. Hue lights, plugs, rooms, scenes and motion-sensor temperatures then work everywhere Home Assistant devices do, including the 3D house and Jarvis. The bridge is checked every two seconds for changes.
 
 Install the Smart Home add-on, then connect your Home Assistant server URL and a long-lived access token (Home Assistant → your profile → Security → Long-lived access tokens). Lights, switches, fans, locks, covers, and scenes become controllable from the mirror, with climate and sensor readouts. The token is encrypted on the device and never sent to the browser.
 
-The Smart Home screen opens with a 3D holographic house that builds itself up over a projector base: each room from Home Assistant is a room in the house (living spaces downstairs, bedrooms and studies upstairs), and every light fills its room with its real colour. Tap a light to switch it, tap a room to switch all its lights, or drag to turn the house. Below the house, devices are grouped by the rooms (areas) you set in Home Assistant, each with an All on / All off button. Tap a light to switch it, or its ◐ button for brightness, colour and warm/cool white. Jarvis can control a single device or a whole room, for example "lights off in the living room", "make the bedroom warm white at 30 percent" or "movie mode" for a Hue scene. Philips Hue and any other brand work once they are added to Home Assistant.
+The Smart Home screen opens with a 3D holographic house that builds itself up over a projector base: each room from Home Assistant is a room in the house (living spaces downstairs, bedrooms and studies upstairs), and every light fills its room with its real colour. Tap a light to switch it, tap a room to switch all its lights, or drag to turn the house. Below the house, devices are grouped by the rooms (areas) you set in Home Assistant, each with an All on / All off button. Tap a light to switch it, or its ◐ button for brightness, colour and warm/cool white. Jarvis can control a single device or a whole room, for example "lights off in the living room", "make the bedroom warm white at 30 percent" or "movie mode" for a Hue scene. Philips Hue can connect directly (above); any other brand works once it is added to Home Assistant.
 
 ## Customise
 
