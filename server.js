@@ -245,6 +245,44 @@ function haEntity(entity, areas) {
   };
 }
 
+// Live video (WebRTC): some cameras, Ring's among them, only stream live this way. The browser makes an offer,
+// the server passes it to Home Assistant with the token, and hands back the camera's answer and network routes.
+// The video then flows straight from the camera service to the browser; the server only holds the session open.
+const liveSessions = new Map();
+function openLiveVideo(config, entityId, offer) {
+  return new Promise((resolve, reject) => {
+    let socket;
+    try { socket = new WebSocket(`${config.baseUrl.replace(/^http/, "ws")}/api/websocket`); } catch (error) { return reject(error); }
+    const id = crypto.randomUUID(), candidates = [];
+    let answer = null, settled = false, quiet = null;
+    const close = () => { clearTimeout(entry.expires); liveSessions.delete(id); try { socket.close(); } catch {} };
+    const entry = { socket, close, expires: setTimeout(() => close(), 10 * 60000) };
+    const finish = (error) => {
+      if (settled) return; settled = true; clearTimeout(timeout); clearTimeout(quiet);
+      if (error) { close(); reject(error); } else { liveSessions.set(id, entry); resolve({ id, answer, candidates }); }
+    };
+    const timeout = setTimeout(() => finish(answer ? null : new Error("The camera didn't answer.")), 20000);
+    socket.addEventListener("message", (message) => {
+      let data; try { data = JSON.parse(String(message.data)); } catch { return; }
+      if (data.type === "auth_required") socket.send(JSON.stringify({ type: "auth", access_token: config.token }));
+      else if (data.type === "auth_ok") socket.send(JSON.stringify({ id: 1, type: "camera/webrtc/offer", entity_id: entityId, offer }));
+      else if (data.type === "auth_invalid") finish(new Error("Home Assistant refused the mirror's key."));
+      else if (data.type === "result" && !data.success) finish(new Error(data.error?.message || "This camera can't stream live."));
+      else if (data.type === "event") {
+        const e = data.event || {};
+        if (e.type === "error") finish(new Error(e.message || "The camera couldn't start."));
+        else if (e.type === "answer") { answer = e.answer; clearTimeout(quiet); quiet = setTimeout(() => finish(), 1500); }
+        else if (e.type === "candidate" && e.candidate) {
+          candidates.push(e.candidate);
+          if (answer) { clearTimeout(quiet); quiet = setTimeout(() => finish(), 800); }
+        }
+      }
+    });
+    socket.addEventListener("close", () => { liveSessions.delete(id); finish(new Error("The camera connection closed.")); });
+    socket.addEventListener("error", () => finish(new Error("Couldn't reach Home Assistant.")));
+  });
+}
+
 // Live updates: the server keeps the Home Assistant token, opens Home Assistant's WebSocket, and passes each
 // device change on to the mirror's browser as a server-sent event, so the screen changes the moment the house does.
 function homeAssistantStream(req, res, config) {
@@ -677,6 +715,19 @@ async function api(req, res, url) {
       return res.end();
     } catch (error) { if (!res.headersSent) return json(res, 502, { error: error.message }); return res.end(); }
   }
+  if (url.pathname === "/api/homeassistant/live" && req.method === "POST") {
+    const config = homeConfig(session);
+    if (!config || config.kind === "hue") return json(res, 409, { error: "Connect Home Assistant first." });
+    const input = await body(req);
+    if (!/^camera\.[a-z0-9_]+$/.test(String(input.entityId || "")) || typeof input.offer !== "string") return json(res, 400, { error: "Invalid camera." });
+    try { return json(res, 200, await openLiveVideo(config, input.entityId, input.offer)); }
+    catch (error) { return json(res, 502, { error: error.message }); }
+  }
+  const liveMatch = url.pathname.match(/^\/api\/homeassistant\/live\/([0-9a-f-]+)$/);
+  if (liveMatch && req.method === "DELETE") {
+    liveSessions.get(liveMatch[1])?.close();
+    return json(res, 200, { ok: true });
+  }
   if (url.pathname === "/api/homeassistant/service" && req.method === "POST") {
     const config = homeConfig(session);
     if (!config) return json(res, 409, { error: "Connect Home Assistant first." });
@@ -938,7 +989,7 @@ const assistantTools = [
   { name: "show_house", description: "Show the whole 3D house, or just one floor of it.", input_schema: { type: "object", properties: { floor: { type: "string", enum: ["all", "downstairs", "upstairs"] } }, additionalProperties: false } },
   { name: "show_camera", description: "Show a live security camera on the 3D House screen. Use a camera id or name from the context; leave it out for the first camera.", input_schema: { type: "object", properties: { camera: { type: "string" } }, additionalProperties: false } },
   { name: "run_scene", description: "Run a whole-house scene (for example goodnight, away, movie_night, relax, good_morning, party, all_off) using a scene key from the context.", input_schema: { type: "object", properties: { scene: { type: "string" } }, required: ["scene"], additionalProperties: false } },
-  { name: "control_device", description: "Control Home Assistant devices listed in the mirror context. Target one device with entity_id, or a whole room with area_id (all its lights by default, or the domain given). Use turn_on/turn_off/toggle for lights, switches and fans; with turn_on on lights, brightness_pct sets brightness, color sets a colour (a CSS colour name like red, blue, purple, orange) and kelvin sets white temperature (2200 warm, 4000 neutral, 6500 cool). Use activate for scenes (e.g. Hue scenes), lock/unlock for locks, open/close for covers and set_temperature (with temperature) for climate. Call it once per room or device; several calls in one turn are fine.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, area_id: { type: "string", description: "Room id from the context, e.g. living_room, to control the whole room" }, domain: { type: "string", enum: ["light", "switch", "fan", "cover"], description: "With area_id: which kind of device in the room. Defaults to light." }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature"] }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, color: { type: "string" }, kelvin: { type: "integer", minimum: 2000, maximum: 6500 }, temperature: { type: "number" } }, required: ["action"], additionalProperties: false } },
+  { name: "control_device", description: "Control Home Assistant devices listed in the mirror context. Target one device with entity_id, or a whole room with area_id (all its lights by default, or the domain given). Use turn_on/turn_off/toggle for lights, switches and fans; with turn_on on lights, brightness_pct sets brightness, color sets a colour (a CSS colour name like red, blue, purple, orange) and kelvin sets white temperature (2200 warm, 4000 neutral, 6500 cool). Use activate for scenes (e.g. Hue scenes), lock/unlock for locks, open/close for covers and set_temperature (with temperature) for climate. For TVs and speakers (media_player) use play, pause, play_pause, next, previous, volume_up, volume_down, mute, unmute, or set_volume with volume_pct; turn_on/turn_off switch them on and off. Call it once per room or device; several calls in one turn are fine.", input_schema: { type: "object", properties: { entity_id: { type: "string", description: "Exact entity id from the context, e.g. light.living_room" }, area_id: { type: "string", description: "Room id from the context, e.g. living_room, to control the whole room" }, domain: { type: "string", enum: ["light", "switch", "fan", "cover", "media_player"], description: "With area_id: which kind of device in the room. Defaults to light." }, action: { type: "string", enum: ["turn_on", "turn_off", "toggle", "activate", "lock", "unlock", "open", "close", "set_temperature", "play", "pause", "play_pause", "next", "previous", "volume_up", "volume_down", "mute", "unmute", "set_volume"] }, volume_pct: { type: "integer", minimum: 0, maximum: 100 }, brightness_pct: { type: "integer", minimum: 1, maximum: 100 }, color: { type: "string" }, kelvin: { type: "integer", minimum: 2000, maximum: 6500 }, temperature: { type: "number" } }, required: ["action"], additionalProperties: false } },
   { name: "music", description: "Control Spotify on the mirror. play resumes, pause pauses, next/previous skip, play_search finds and plays a song, artist or album from query.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["play", "pause", "next", "previous", "play_search"] }, query: { type: "string" } }, required: ["action"], additionalProperties: false } },
   { name: "add_task", description: "Add a task to the mirror's task list.", input_schema: { type: "object", properties: { title: { type: "string" }, category: { type: "string", enum: ["Home", "Work", "Health", "Personal"] }, when: { type: "string", enum: ["Today", "Upcoming"] }, high_priority: { type: "boolean" } }, required: ["title"], additionalProperties: false } },
   { name: "complete_task", description: "Mark a task from the context as done.", input_schema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"], additionalProperties: false } },
@@ -1128,7 +1179,7 @@ async function assistantApi(req, res, url) {
 const staticTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".glb": "model/gltf-binary" };
 // Only these paths may be served. Everything else (config, dotfiles, /data, source-of-truth JSON) is denied,
 // so provider secrets in reflect-os.config.json can never be read over HTTP.
-const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json", "devices.js", "vendor/qrcode.js", "doorbell.js"]);
+const staticAllowList = new Set(["index.html", "app.js", "styles.css", "assistant.js", "hud-motion.js", "voice-worker.js", "smarthome/house-map.json", "assistant.css", "addons/catalog.json", "devices.js", "vendor/qrcode.js", "doorbell.js", "live-camera.js"]);
 
 function serveStatic(req, res, url) {
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1)).replace(/\/+$/, "");

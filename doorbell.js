@@ -5,7 +5,7 @@
   const bridge = window.ReflectBridge;
   if (!bridge?.onChange) return;
   const seen = new Map();
-  let pop = null, hideTimer = null, refreshTimer = null;
+  let pop = null, hideTimer = null, refreshTimer = null, stopLive = null, liveAttempt = 0;
 
   const isDoorbell = (e) => {
     const id = String(e.id || "");
@@ -37,7 +37,7 @@
     pop.setAttribute("aria-live", "assertive");
     pop.innerHTML = `<div class="db-card"><span class="db-corner tl"></span><span class="db-corner tr"></span><span class="db-corner bl"></span><span class="db-corner br"></span>
       <p class="db-eyebrow"><span class="db-dot"></span>Doorbell</p><h2 class="db-title"></h2>
-      <div class="db-feed"><img alt="Doorbell camera" hidden><div class="db-nofeed">No camera picture</div><span class="db-scan"></span></div>
+      <div class="db-feed"><video muted playsinline autoplay hidden></video><img alt="Doorbell camera" hidden><div class="db-nofeed">No camera picture</div><span class="db-scan"></span></div>
       <footer><span class="db-time"></span><button type="button" class="db-dismiss">Dismiss</button></footer></div>`;
     pop.querySelector(".db-dismiss").addEventListener("click", hide);
     pop.addEventListener("click", (ev) => { if (ev.target === pop) hide(); });
@@ -49,15 +49,22 @@
     const place = placeFor(e);
     pop.querySelector(".db-title").textContent = `Someone's at ${place}`;
     pop.querySelector(".db-time").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const img = pop.querySelector("img"), none = pop.querySelector(".db-nofeed"), cam = cameraFor(e);
-    clearInterval(refreshTimer);
-    img.hidden = true; none.hidden = false;
+    const img = pop.querySelector("img"), video = pop.querySelector("video"), none = pop.querySelector(".db-nofeed"), cam = cameraFor(e);
+    clearInterval(refreshTimer); stopLive?.(); stopLive = null;
+    img.hidden = true; video.hidden = true; none.hidden = false;
     if (cam) {
+      // Still pictures straight away, then live video once it's moving (Ring only streams live this way).
       const load = () => { img.src = `/api/homeassistant/camera/${encodeURIComponent(cam.id)}?still=1&t=${Date.now()}`; };
-      img.onload = () => { img.hidden = false; none.hidden = true; };
+      img.onload = () => { if (video.hidden) { img.hidden = false; none.hidden = true; } };
       img.onerror = () => {};
       load();
       refreshTimer = setInterval(load, 1500);
+      const attempt = ++liveAttempt;
+      window.ReflectLive?.play(video, cam.id).then((stop) => {
+        if (attempt !== liveAttempt || !pop.classList.contains("is-open")) return stop();
+        stopLive = stop; clearInterval(refreshTimer);
+        video.hidden = false; img.hidden = true; none.hidden = true;
+      }).catch(() => {});
     }
     pop.classList.remove("is-leaving");
     pop.classList.add("is-open");
@@ -68,7 +75,7 @@
 
   function hide() {
     if (!pop?.classList.contains("is-open")) return;
-    clearTimeout(hideTimer); clearInterval(refreshTimer);
+    clearTimeout(hideTimer); clearInterval(refreshTimer); stopLive?.(); stopLive = null; liveAttempt++;
     pop.classList.add("is-leaving");
     setTimeout(() => { pop.classList.remove("is-open", "is-leaving"); pop.querySelector("img").removeAttribute("src"); }, 350);
   }

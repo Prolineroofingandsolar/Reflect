@@ -92,7 +92,17 @@ export function VoiceAssistant() {
 export function CameraPanel({ cameras, current, onPick, onClose }) {
   const cam = cameras.find((c) => c.id === current) || cameras[0];
   const [bust, setBust] = useState(0);
+  const [live, setLive] = useState(false);
+  const video = useRef(null);
   useEffect(() => setBust(Date.now()), [cam?.id]);
+  // Live video where the camera offers it (Ring only streams live this way); the picture below shows until then.
+  useEffect(() => {
+    setLive(false);
+    if (!cam || !video.current || !window.ReflectLive) return undefined;
+    let stop = null, gone = false;
+    window.ReflectLive.play(video.current, cam.id).then((s) => { if (gone) s(); else { stop = s; setLive(true); } }).catch(() => {});
+    return () => { gone = true; stop?.(); };
+  }, [cam?.id]);
   if (!cam) return null;
   return (
     <motion.section className="h3-panel h3-camera" {...holo} aria-label={`${cam.label} camera`}>
@@ -100,7 +110,7 @@ export function CameraPanel({ cameras, current, onPick, onClose }) {
         <div><p className="h3-eyebrow">Live camera</p><h2>{cam.label}</h2></div>
         <button type="button" className="h3-close" onClick={onClose} aria-label="Close camera">✕</button>
       </header>
-      <div className="h3-feed"><img key={`${cam.id}-${bust}`} src={`/api/homeassistant/camera/${cam.id}?t=${bust}`} alt={`${cam.label} live view`} /><i className="h3-feed-scan" /></div>
+      <div className="h3-feed"><video ref={video} muted playsInline autoPlay style={{ display: live ? "block" : "none", width: "100%" }} />{!live && <img key={`${cam.id}-${bust}`} src={`/api/homeassistant/camera/${cam.id}?t=${bust}`} alt={`${cam.label} live view`} />}<i className="h3-feed-scan" /></div>
       {cameras.length > 1 && <div className="h3-tabs">{cameras.map((c) => <button key={c.id} type="button" className={c.id === cam.id ? "is-active" : ""} onClick={() => onPick(c.id)}>{c.label}</button>)}</div>}
     </motion.section>
   );
