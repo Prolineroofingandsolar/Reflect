@@ -289,7 +289,7 @@
         if (!inRoom.some((e) => e.domain === d)) throw new Error(`There is no ${d} in ${inRoom[0].area}.`);
         data = { area_id: input.area_id }; label = `the ${inRoom[0].area} ${d === "light" ? "lights" : `${d} devices`}`;
       } else throw new Error("Say which device or room.");
-      const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature",
+      const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature", heating_off: "climate.set_hvac_mode", heating_schedule: "climate.set_hvac_mode",
         play: "media_player.media_play", pause: "media_player.media_pause", play_pause: "media_player.media_play_pause", next: "media_player.media_next_track", previous: "media_player.media_previous_track",
         volume_up: "media_player.volume_up", volume_down: "media_player.volume_down", mute: "media_player.volume_mute", unmute: "media_player.volume_mute", set_volume: "media_player.volume_set" }[input.action];
       if (!service) throw new Error(`Unknown action ${input.action}.`);
@@ -297,6 +297,8 @@
       if (service.startsWith("media_player.") && d !== "media_player" && !["turn_on", "turn_off", "toggle"].includes(input.action)) throw new Error(`${label} isn't a TV or speaker.`);
       if (input.action === "mute" || input.action === "unmute") data.is_volume_muted = input.action === "mute";
       if (input.action === "set_volume") { if (!Number.isFinite(input.volume_pct)) throw new Error("A volume is needed."); data.volume_level = Math.max(0, Math.min(100, input.volume_pct)) / 100; }
+      if (input.action === "heating_off") data.hvac_mode = "off";
+      if (input.action === "heating_schedule") data.hvac_mode = "auto";
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
       try { await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) }); }
       catch (error) {
