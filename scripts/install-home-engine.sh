@@ -54,7 +54,7 @@ fi
 echo "Waiting for the home engine to start..."
 for _ in $(seq 1 120); do
   if curl -s -o /dev/null http://127.0.0.1:8123/api/onboarding; then
-    echo "Done. The mirror will pick it up within a minute: open Devices on the mirror to add your smart home."
+    echo "Done. Restart the mirror (stop it, then run node server.js again). It will say \"Home engine ready\" within a minute; then open Devices on the mirror."
     exit 0
   fi
   sleep 5

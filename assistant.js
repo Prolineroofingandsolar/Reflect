@@ -201,7 +201,7 @@
       const rooms = [...new Map(homeAssistantEntities.filter((e) => e.areaId).map((e) => [e.areaId, e.area])).entries()];
       lines.push(rooms.length ? `Rooms (area id = name): ${rooms.map(([id, name]) => `${id} = ${name}`).join(", ")}.` : "Rooms: none set up in Home Assistant.");
       lines.push("Smart home devices (entity id | name | room | state):");
-      homeAssistantEntities.filter((e) => e.state !== "unavailable" && e.state !== "unknown").slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}`));
+      homeAssistantEntities.filter((e) => e.state !== "unavailable" && e.state !== "unknown").slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}${e.domain === "media_player" ? ` | TV/speaker${e.media?.title ? `, playing ${e.media.title}` : ""}` : ""}`));
     }
     if (connected("smartHome")) { try { lines.push(...(window.ReflectHome3D?.describe() || [])); } catch {} }
     const timers = loadTimers();
@@ -289,9 +289,14 @@
         if (!inRoom.some((e) => e.domain === d)) throw new Error(`There is no ${d} in ${inRoom[0].area}.`);
         data = { area_id: input.area_id }; label = `the ${inRoom[0].area} ${d === "light" ? "lights" : `${d} devices`}`;
       } else throw new Error("Say which device or room.");
-      const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature" }[input.action];
+      const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature",
+        play: "media_player.media_play", pause: "media_player.media_pause", play_pause: "media_player.media_play_pause", next: "media_player.media_next_track", previous: "media_player.media_previous_track",
+        volume_up: "media_player.volume_up", volume_down: "media_player.volume_down", mute: "media_player.volume_mute", unmute: "media_player.volume_mute", set_volume: "media_player.volume_set" }[input.action];
       if (!service) throw new Error(`Unknown action ${input.action}.`);
       Object.assign(data, lightOptions(d, input));
+      if (service.startsWith("media_player.") && d !== "media_player" && !["turn_on", "turn_off", "toggle"].includes(input.action)) throw new Error(`${label} isn't a TV or speaker.`);
+      if (input.action === "mute" || input.action === "unmute") data.is_volume_muted = input.action === "mute";
+      if (input.action === "set_volume") { if (!Number.isFinite(input.volume_pct)) throw new Error("A volume is needed."); data.volume_level = Math.max(0, Math.min(100, input.volume_pct)) / 100; }
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
       await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) });
       window.dispatchEvent(new CustomEvent("reflect:home-action", { detail: { entityIds: data.entity_id ? [data.entity_id] : [], areaIds: data.area_id ? [data.area_id] : [] } }));

@@ -43563,8 +43563,17 @@ function bY() {
   ] }) });
 }
 function RY({ cameras: n, current: e, onPick: t, onClose: i }) {
-  const r = n.find((a) => a.id === e) || n[0], [s, o] = W.useState(0);
-  return W.useEffect(() => o(Date.now()), [r?.id]), r ? /* @__PURE__ */ N.jsxs(Zl.section, { className: "h3-panel h3-camera", ...JF, "aria-label": `${r.label} camera`, children: [
+  const r = n.find((f) => f.id === e) || n[0], [s, o] = W.useState(0), [a, l] = W.useState(!1), c = W.useRef(null);
+  return W.useEffect(() => o(Date.now()), [r?.id]), W.useEffect(() => {
+    if (l(!1), !r || !c.current || !window.ReflectLive) return;
+    let f = null, d = !1;
+    return window.ReflectLive.play(c.current, r.id).then((p) => {
+      d ? p() : (f = p, l(!0));
+    }).catch(() => {
+    }), () => {
+      d = !0, f?.();
+    };
+  }, [r?.id]), r ? /* @__PURE__ */ N.jsxs(Zl.section, { className: "h3-panel h3-camera", ...JF, "aria-label": `${r.label} camera`, children: [
     /* @__PURE__ */ N.jsxs("header", { className: "h3-panel-head", children: [
       /* @__PURE__ */ N.jsxs("div", { children: [
         /* @__PURE__ */ N.jsx("p", { className: "h3-eyebrow", children: "Live camera" }),
@@ -43573,10 +43582,11 @@ function RY({ cameras: n, current: e, onPick: t, onClose: i }) {
       /* @__PURE__ */ N.jsx("button", { type: "button", className: "h3-close", onClick: i, "aria-label": "Close camera", children: "✕" })
     ] }),
     /* @__PURE__ */ N.jsxs("div", { className: "h3-feed", children: [
-      /* @__PURE__ */ N.jsx("img", { src: `/api/homeassistant/camera/${r.id}?t=${s}`, alt: `${r.label} live view` }, `${r.id}-${s}`),
+      /* @__PURE__ */ N.jsx("video", { ref: c, muted: !0, playsInline: !0, autoPlay: !0, style: { display: a ? "block" : "none", width: "100%" } }),
+      !a && /* @__PURE__ */ N.jsx("img", { src: `/api/homeassistant/camera/${r.id}?t=${s}`, alt: `${r.label} live view` }, `${r.id}-${s}`),
       /* @__PURE__ */ N.jsx("i", { className: "h3-feed-scan" })
     ] }),
-    n.length > 1 && /* @__PURE__ */ N.jsx("div", { className: "h3-tabs", children: n.map((a) => /* @__PURE__ */ N.jsx("button", { type: "button", className: a.id === r.id ? "is-active" : "", onClick: () => t(a.id), children: a.label }, a.id)) })
+    n.length > 1 && /* @__PURE__ */ N.jsx("div", { className: "h3-tabs", children: n.map((f) => /* @__PURE__ */ N.jsx("button", { type: "button", className: f.id === r.id ? "is-active" : "", onClick: () => t(f.id), children: f.label }, f.id)) })
   ] }) : null;
 }
 function PY({ scenes: n, onRun: e, open: t, setOpen: i }) {

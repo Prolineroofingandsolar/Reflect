@@ -3143,7 +3143,8 @@ body.theme-light .dv-text, body.theme-light .dv-wait p, body.theme-light .dv-don
 .db-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: db-pulse 1s ease-in-out infinite; }
 .db-title { margin: 8px 0 14px; font-size: clamp(22px, 4vw, 34px); font-weight: 500; color: var(--text); }
 .db-feed { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid rgba(var(--accent-rgb), 0.3); background: #000; }
-.db-feed img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.db-feed img, .db-feed video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.db-feed [hidden] { display: none; }
 .db-nofeed { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }
 .db-nofeed[hidden] { display: none; }
 .db-scan { position: absolute; left: 0; right: 0; height: 2px; top: 0; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .7; animation: db-scan 2.4s linear infinite; }

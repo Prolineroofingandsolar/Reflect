@@ -107,6 +107,7 @@
     return `<label><span>${esc(f.label)}${f.required ? "" : " (optional)"}</span><input id="${id}" name="${esc(f.name)}" type="${type}" ${f.required ? "required" : ""} ${f.default != null && f.type !== "password" ? `value="${esc(f.default)}"` : ""} ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""} autocomplete="off">${help}${err}</label>`;
   }
 
+  const isCode = (name) => /(^|_)(2fa|otp|code|pin|token|verification)($|_)/i.test(String(name));
   function showStep(step) {
     D.flow = step;
     clearTimeout(D.poll);
@@ -147,6 +148,13 @@
     if (!flowId) return;
     try {
       const step = await request("/api/devices/flow", { method: "POST", body: JSON.stringify(input === undefined ? { flowId } : { flowId, input }) });
+      // A form that comes straight back unchanged means the brand turned the answer down without saying why
+      // (Ring does this with a wrong or expired verification code), so say so rather than look stuck.
+      const before = D.flow;
+      if (input !== undefined && step.type === "form" && before?.type === "form" && step.step === before.step && !Object.keys(step.errors || {}).length) {
+        const code = (step.fields || []).some((f) => isCode(f.name));
+        step.errors = { base: code ? "That code didn't work. Codes only last a few minutes, so use the newest one you were sent and try again." : "That didn't work. Check what you typed and try again." };
+      }
       if (D.flow?.flowId === flowId || step.flowId === flowId) showStep(step);
     } catch (error) {
       if (!dialog().open) return;
@@ -288,7 +296,7 @@
       if (f.type === "boolean") input[f.name] = node.checked;
       else if (f.type === "number") { if (node.value !== "") input[f.name] = Number(node.value); }
       else if (f.type === "constant") continue;
-      else if (node.value !== "" || f.required) input[f.name] = node.value;
+      else if (node.value !== "" || f.required) input[f.name] = f.type === "password" ? node.value : isCode(f.name) ? node.value.replace(/\s+/g, "") : node.value.trim();
     }
     busy("Connecting…");
     advance(input);
