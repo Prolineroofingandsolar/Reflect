@@ -540,6 +540,7 @@
     const feed = sentenceFeeder((sentence) => {
       if (!live()) return;
       if (!talk) { clearTimeout(A.ackTimer); talk = startTalking(); showReply(""); if (A.timing && !A.timing.text) A.timing.text = performance.now(); }
+      sentence = fewerSirs(sentence);
       showReplyPart(sentence);
       talk.say(sentence);
     });
@@ -649,14 +650,16 @@
         end.lastIndex = 0;
         while ((m = end.exec(buffer))) {
           const stop = m.index + m[0].length;
-          if (stop - cut >= (first ? 12 : 25)) { const piece = buffer.slice(cut, stop).trim(); if (piece) { say(piece); first = false; } cut = stop; }
+          // Whole sentences keep the voice's natural rhythm; very short ones ride along with the next.
+          if (stop - cut >= (first ? 12 : 40)) { const piece = buffer.slice(cut, stop).trim(); if (piece) { say(piece); first = false; } cut = stop; }
         }
         buffer = buffer.slice(cut);
-        if (first) {
+        if (first && buffer.length > 90) {
+          // Only a long opening sentence is split, at a comma well into it, so he starts sooner.
           const pause = /(?:[,;:\u2013\u2014]|\s-)\s+/g;
           while ((m = pause.exec(buffer))) {
             const stop = m.index + m[0].length;
-            if (stop >= 12) { say(buffer.slice(0, stop).trim()); first = false; buffer = buffer.slice(stop); break; }
+            if (stop >= 40) { say(buffer.slice(0, stop).trim()); first = false; buffer = buffer.slice(stop); break; }
           }
         }
       },
@@ -808,6 +811,7 @@
     A.ackPlaying = null;
     return {
       say(chunk) {
+        heardMyself(chunk);
         const made = generating.then(async () => {
           const make = await maker;
           if (!make || broken || A.speakRun !== run) return null;
@@ -822,6 +826,8 @@
           if (A.speakRun !== run) { if (url) URL.revokeObjectURL(url); return; }
           if (url) await playSpeech(url).catch(() => {});
           else { await voicesLoaded(); if (A.speakRun === run) await speakBrowser(speakable(chunk)); }
+          // A breath between pieces, as a speaker would: longer after a full stop than after a comma.
+          if (A.speakRun === run) await new Promise((r) => setTimeout(r, /[.!?]["')\]]*$/.test(chunk.trim()) ? 260 : 90));
         });
       },
       done: () => playing
@@ -857,7 +863,7 @@
   }
   async function makeKokoro(text) {
     // Kokoro's normal pace sounds slow and drawn out for Jarvis; a little quicker sounds natural.
-    const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice(), speed: 1.12 });
+    const { blob } = await kokoroCall({ type: "speak", text, voice: kokoroVoice(), speed: 1.06 });
     return URL.createObjectURL(blob);
   }
 
@@ -868,7 +874,7 @@
     const ac = audioContext();
     if (!ac || A.acks) return;
     const sir = String(A.status?.address || "").trim();
-    const lines = sir ? [`Right, ${sir}.`, "Certainly.", `One moment, ${sir}.`, "Of course."] : ["Right.", "Certainly.", "One moment.", "Of course."];
+    const lines = ["Right.", "Certainly.", "One moment.", sir ? `Of course, ${sir}.` : "Of course.", "On it."];
     A.acks = [];
     for (const line of lines) {
       try {
@@ -932,6 +938,11 @@
   async function finishTalking(talk) {
     try { await talk.done(); } catch {}
     if (A.state !== "speaking") return; // interrupted by a tap or closed
+    // The recogniser lags a second or so behind, so the end of his own voice is still in it. Start it
+    // afresh and ignore the first moment, so he doesn't hear himself and answer it.
+    A.lastSpoke = Date.now();
+    A.deafUntil = Date.now() + 700;
+    try { A.recognition?.abort(); } catch {}
     // Like a real conversation: stay listening briefly for a follow-up without the wake word.
     if (canListen()) listenForCommand(7000, false);
     else { setState("idle"); closeSoon(); }
@@ -969,6 +980,9 @@
   }
 
   function handleTranscript(transcript, isFinal) {
+    if (Date.now() < (A.deafUntil || 0)) return;
+    const wake = wakePattern().test(transcript);
+    if (!wake && isEcho(transcript)) return;
     if (A.busy || A.state === "speaking") {
       // While he's talking or thinking, only his name gets through: it cuts him off and he listens.
       // Anything else is ignored, so he doesn't react to his own voice.
@@ -983,6 +997,40 @@
     listenForCommand(10000, !after);
     heard(after, isFinal);
   }
+  // ---------- Not hearing himself ----------
+  // The speakers are right next to the microphone, so what he says comes back in. Everything he says is
+  // remembered for a few seconds, and anything heard that is mostly his own words is ignored.
+  const wordsOf = (text) => String(text).toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+  function heardMyself(text) {
+    A.said = [...(A.said || []).filter((s) => Date.now() - s.at < 60000), { at: Date.now(), words: wordsOf(text) }];
+  }
+  // Echo = heard while he's talking (or just after), and mostly his own words in his own order.
+  function isEcho(text) {
+    const words = wordsOf(text);
+    if (!words.length || !A.said?.length) return false;
+    if (!(A.state === "speaking" || A.busy || Date.now() - (A.lastSpoke || 0) < 2500)) return false;
+    const mine = A.said.flatMap((s) => s.words);
+    let i = 0, matched = 0;
+    for (const w of words) { const at = mine.indexOf(w, i); if (at >= 0) { matched++; i = at + 1; } }
+    return words.length <= 2 ? matched === words.length : matched / words.length >= 0.7;
+  }
+  // "Sir" in moderation: at most once every few replies, however keen the model is on it.
+  function fewerSirs(sentence) {
+    const sir = String(A.status?.address || "").trim();
+    if (!sir) return sentence;
+    const re = new RegExp(`(?:,\\s*${sir}\\b|\\b${sir},\\s*)`, "gi");
+    if (!re.test(sentence)) return sentence;
+    re.lastIndex = 0;
+    const turn = A.turn || 0;
+    if (A.sirTurn != null && turn - A.sirTurn < 3) {
+      const out = sentence.replace(re, (m) => (m.startsWith(",") ? "" : "")).replace(/^\s*(\w)/, (c) => c.toUpperCase());
+      return out.trim() || sentence;
+    }
+    A.sirTurn = turn;
+    let kept = false;
+    return sentence.replace(re, (m) => { if (!kept) { kept = true; return m; } return ""; });
+  }
+
   // Collects what's being said until there's a proper pause, so a sentence with a breath in the
   // middle isn't cut off and sent half-finished. Speaking also keeps the listening window open.
   function heard(text, isFinal) {
