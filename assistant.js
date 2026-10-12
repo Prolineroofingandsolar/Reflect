@@ -298,13 +298,20 @@
       if (input.action === "mute" || input.action === "unmute") data.is_volume_muted = input.action === "mute";
       if (input.action === "set_volume") { if (!Number.isFinite(input.volume_pct)) throw new Error("A volume is needed."); data.volume_level = Math.max(0, Math.min(100, input.volume_pct)) / 100; }
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
-      await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) });
+      try { await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service, data }) }); }
+      catch (error) {
+        // Some TVs only understand the one play/pause button, the same one the mirror's own controls press.
+        if (!["play", "pause"].includes(input.action)) throw error;
+        await api("/api/homeassistant/service", { method: "POST", body: JSON.stringify({ service: "media_player.media_play_pause", data }) });
+      }
       window.dispatchEvent(new CustomEvent("reflect:home-action", { detail: { entityIds: data.entity_id ? [data.entity_id] : [], areaIds: data.area_id ? [data.area_id] : [] } }));
       setTimeout(loadHomeAssistant, 700);
       return `${service} sent to ${label}.`;
     }
     if (tool === "music") {
-      if (!connected("spotify")) throw new Error("Spotify is not connected. Connect it in Settings, Connections first.");
+      // "Pause" with no Spotify means whatever is playing on a TV or speaker.
+      const tv = homeAssistantEntities.filter((e) => e.domain === "media_player").sort((a, b) => (b.state === "playing") - (a.state === "playing") || (b.state === "paused") - (a.state === "paused"))[0];
+      if (!connected("spotify") && tv && input.action !== "play_search") return runTool("control_device", { entity_id: tv.id, action: input.action });
       const done = await spotifyCommand(input);
       setTimeout(loadSpotify, 900);
       return done;
