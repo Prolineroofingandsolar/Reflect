@@ -3156,3 +3156,13 @@ body.theme-light .dv-text, body.theme-light .dv-wait p, body.theme-light .dv-don
 @keyframes db-pulse { 50% { opacity: .3; } }
 @keyframes db-scan { from { top: 0; } to { top: 100%; } }
 @media (prefers-reduced-motion: reduce) { .db-pop.is-open, .db-pop.is-leaving, .db-dot, .db-scan { animation: none; } }
+
+/* Heating panel */
+.ha-heat { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; margin-bottom: 8px; }
+.ha-heat small { display: block; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+.ha-heat strong { font-size: 36px; font-weight: 300; }
+.ha-heat-set { display: flex; align-items: center; justify-content: flex-end; gap: 14px; text-align: center; }
+.ha-heat-set button { width: 52px; height: 52px; border-radius: 50%; border: 1px solid rgba(var(--accent-rgb), 0.5); background: transparent; color: #fff; font-size: 26px; cursor: pointer; }
+.ha-heat-set button:hover, .ha-heat-set button:focus-visible { background: var(--accent-soft); }
+.ha-heat-set strong { color: var(--accent); min-width: 88px; display: inline-block; }
+.ha-heat-note { color: var(--muted); min-height: 1.2em; margin: 0 0 18px; }

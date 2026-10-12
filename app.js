@@ -469,7 +469,7 @@ function renderHomeKit(){
   if(status)status.textContent=`${homeAssistantEntities.length} device${homeAssistantEntities.length===1?"":"s"}`;
   if(!homeAssistantEntities.length){grid.innerHTML=`<div class="homekit-empty"><p>No devices yet. Add some from the Devices screen.</p></div>`;return;}
   const order=["light","switch","fan","climate","cover","lock","scene","binary_sensor","sensor"];
-  const interactive=new Set(["light","switch","fan","lock","cover","scene"]);
+  const interactive=new Set(["light","switch","fan","lock","cover","scene","climate"]);
   const sorted=[...homeAssistantEntities].sort((a,b)=>order.indexOf(a.domain)-order.indexOf(b.domain)||a.name.localeCompare(b.name));
   const rooms=new Map();
   sorted.forEach(e=>{const key=e.area||"Other";if(!rooms.has(key))rooms.set(key,{id:e.areaId,items:[]});rooms.get(key).items.push(e);});
@@ -481,7 +481,7 @@ function renderHomeKit(){
   grid.innerHTML=roomNames.map(name=>{const room=rooms.get(name),lights=room.items.filter(e=>e.domain==="light"),anyOn=lights.some(entityIsOn);
     const all=room.id&&lights.length?`<button type="button" class="ha-room-all ${anyOn?"is-on":""}" data-ha-room="${esc(room.id)}" data-on="${anyOn?"1":""}">${anyOn?"All off":"All on"}</button>`:"";
     return `<section class="ha-room${fresh?" is-new":""}"><header class="ha-room-head"><h2>${esc(name)}</h2><span>${lights.length?`${lights.filter(entityIsOn).length}/${lights.length} lights on`:""}</span>${all}</header><div class="ha-room-grid">${room.items.map(tile).join("")}</div></section>`;}).join("");
-  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;toggleEntity(btn.dataset.haToggle);}));
+  grid.querySelectorAll("[data-ha-toggle]").forEach(btn=>btn.addEventListener("click",ev=>{if(ev.target.closest("[data-ha-adjust]"))return;if(btn.dataset.haToggle.startsWith("climate."))return openHeatPanel(btn.dataset.haToggle);toggleEntity(btn.dataset.haToggle);}));
   grid.querySelectorAll("[data-ha-adjust]").forEach(el=>{const open=ev=>{ev.stopPropagation();openLightPanel(el.dataset.haAdjust);};el.addEventListener("click",open);el.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" ")open(ev);});});
   grid.querySelectorAll("[data-ha-room]").forEach(btn=>btn.addEventListener("click",()=>callHomeAssistant(btn.dataset.on?"light.turn_off":"light.turn_on",{area_id:btn.dataset.haRoom})));
 }
@@ -525,6 +525,33 @@ function openLightPanel(id){
   panel.querySelectorAll("[data-sw]").forEach(b=>b.addEventListener("click",()=>{panel.querySelectorAll("[data-sw]").forEach(x=>x.classList.toggle("is-picked",x===b));send(swatches[Number(b.dataset.sw)][1]);}));
   panel.querySelector("#haOff").addEventListener("click",()=>{callHomeAssistant("light.turn_off",{entity_id:e.id});panel.close();});
   panel.querySelector("#haDone").addEventListener("click",()=>panel.close());
+  if(!panel.open)panel.showModal();
+}
+
+// Heating (Tado, Nest, Hive...): see the room temperature, nudge the target up or down, switch it off or back to its schedule.
+function openHeatPanel(id){
+  const e=homeAssistantEntities.find(x=>x.id===id);if(!e)return;
+  let panel=$("haHeatPanel");
+  if(!panel){panel=document.createElement("dialog");panel.id="haHeatPanel";panel.className="ha-light-panel ha-heat-panel";document.body.appendChild(panel);panel.addEventListener("click",ev=>{if(ev.target===panel)panel.close();});}
+  const modes=e.hvacModes||[],step=Math.max(0.5,e.step||0.5),min=e.minTemp??5,max=e.maxTemp??25;
+  let target=e.temperature??Math.round((e.currentTemperature??20)*2)/2,timer=null;
+  const off=e.state==="off";
+  panel.innerHTML=`<p class="eyebrow">${esc(e.area||"Heating")}</p><h2>${esc(e.name)}</h2>
+    <div class="ha-heat"><div><small>Now</small><strong>${e.currentTemperature!=null?`${Number(e.currentTemperature).toFixed(1)}°`:"–"}</strong></div>
+    <div class="ha-heat-set"><button type="button" data-heat="-" aria-label="Cooler">−</button><div><small>${off?"Off":e.state==="auto"?"Schedule":"Set to"}</small><strong id="haHeatTarget">${off?"Off":`${target}°`}</strong></div><button type="button" data-heat="+" aria-label="Warmer">+</button></div></div>
+    <p class="ha-heat-note" id="haHeatNote">${e.hvacAction==="heating"?"Heating now":e.hvacAction==="idle"?"Warm enough":""}</p>
+    <div class="ha-panel-actions">${modes.includes("off")?`<button type="button" class="ghost-button" data-mode="off">Turn off</button>`:""}${modes.includes("auto")?`<button type="button" class="ghost-button" data-mode="auto">Use schedule</button>`:""}<button type="button" class="store-action" id="haHeatDone">Done</button></div>`;
+  const out=panel.querySelector("#haHeatTarget");
+  panel.querySelectorAll("[data-heat]").forEach(b=>b.addEventListener("click",()=>{
+    target=Math.min(max,Math.max(min,Math.round((target+(b.dataset.heat==="+"?step:-step))*10)/10));out.textContent=`${target}°`;out.previousElementSibling.textContent="Set to";
+    // Wait until the taps stop, then send once: Tado's cloud only allows so many changes a day.
+    clearTimeout(timer);timer=setTimeout(async()=>{
+      if(modes.includes("heat")&&e.state!=="heat")await callHomeAssistant("climate.set_hvac_mode",{entity_id:e.id,hvac_mode:"heat"});
+      callHomeAssistant("climate.set_temperature",{entity_id:e.id,temperature:target});
+    },900);
+  }));
+  panel.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",()=>{callHomeAssistant("climate.set_hvac_mode",{entity_id:e.id,hvac_mode:b.dataset.mode});panel.close();}));
+  panel.querySelector("#haHeatDone").addEventListener("click",()=>panel.close());
   if(!panel.open)panel.showModal();
 }
 
