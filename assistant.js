@@ -169,10 +169,30 @@
     if (!w?.current) return ["Weather: not loaded yet."];
     const c = w.current, d = w.daily || {};
     const lines = [`Weather in ${profile.weather.place} now: ${Math.round(c.temperature_2m)}°C (feels like ${Math.round(c.apparent_temperature)}°C), ${weatherLabel(c.weather_code).toLowerCase()}, wind ${Math.round(c.wind_speed_10m)} km/h.`];
-    (d.time || []).slice(0, 2).forEach((day, i) => {
-      lines.push(`${i === 0 ? "Today" : i === 1 ? "Tomorrow" : day}: ${weatherLabel(d.weather_code[i]).toLowerCase()}, high ${Math.round(d.temperature_2m_max[i])}°C, low ${Math.round(d.temperature_2m_min[i])}°C, ${d.precipitation_probability_max?.[i] ?? 0}% chance of rain${i === 0 && d.sunset?.[0] ? `, sunset ${String(d.sunset[0]).slice(11, 16)}` : ""}.`);
+    (d.time || []).slice(0, 7).forEach((day, i) => {
+      lines.push(`${i === 0 ? "Today" : i === 1 ? "Tomorrow" : new Date(`${day}T12:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}: ${weatherLabel(d.weather_code[i]).toLowerCase()}, high ${Math.round(d.temperature_2m_max[i])}°C, low ${Math.round(d.temperature_2m_min[i])}°C, ${d.precipitation_probability_max?.[i] ?? 0}% chance of rain${i === 0 && d.sunset?.[0] ? `, sunset ${String(d.sunset[0]).slice(11, 16)}` : ""}.`);
     });
+    // The next 24 hours, hour by hour, for "will it rain at three?".
+    const h = w.hourly || {}, nowHour = new Date().toISOString().slice(0, 13);
+    const local = (t) => new Date(t).toISOString().slice(0, 13);
+    const start = (h.time || []).findIndex((t) => { try { return local(t) >= nowHour; } catch { return false; } });
+    if (start >= 0) lines.push(`Next 24 hours (time temp rain%): ${h.time.slice(start, start + 24).map((t, i) => `${String(t).slice(11, 16)} ${Math.round(h.temperature_2m[start + i])}° ${h.precipitation_probability?.[start + i] ?? 0}%`).join(", ")}.`);
     return lines;
+  }
+  // The devices Jarvis is told about. Things he can act on come first, and the housekeeping sensors
+  // (battery, signal, firmware...) that Ring, Tado and Hue add by the dozen are left out, so a long
+  // list can never push the TV or the lights out of sight.
+  const deviceOrder = ["media_player", "light", "climate", "switch", "fan", "cover", "lock", "alarm_control_panel", "scene", "script", "camera", "person", "event", "binary_sensor", "sensor"];
+  const noisyClasses = new Set(["battery", "signal_strength", "voltage", "current", "timestamp", "duration", "data_rate", "data_size", "power_factor", "frequency", "enum", "update"]);
+  const noisyIds = /battery|signal|rssi|linkquality|wi_?fi|firmware|uptime|last_(seen|update|activity|ding|motion)|voltage|ip_address|update_available|tamper/i;
+  function jarvisDevices() {
+    const rank = (e) => { const i = deviceOrder.indexOf(e.domain); return i < 0 ? deviceOrder.length : i; };
+    const usable = homeAssistantEntities
+      .filter((e) => e.state !== "unavailable" && e.state !== "unknown")
+      .filter((e) => !["sensor", "binary_sensor"].includes(e.domain) || (!noisyClasses.has(e.deviceClass) && !noisyIds.test(e.id)))
+      .sort((a, b) => rank(a) - rank(b));
+    const info = (e) => ["event", "binary_sensor", "sensor"].includes(e.domain);
+    return [...usable.filter((e) => !info(e)).slice(0, 160), ...usable.filter(info).slice(0, 60)];
   }
   async function mirrorContext() {
     if (connected("smartHome") && !homeAssistantEntities.length) { try { await loadHomeAssistant(); } catch {} }
@@ -180,7 +200,7 @@
     const lines = [
       `Time: ${now.toLocaleString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
       `Person: ${profile.personName || "unknown"}`,
-      `Screen showing: ${activeScreen()}`,
+      `Screen showing: ${activeScreen()}${activeScreen() === "calendar" ? ` (${calendarView} view${calendarFocus ? `, showing ${calendarFocus}` : ""})` : activeScreen() === "tasks" ? ` (${taskFilter} tasks)` : ""}${document.body.classList.contains("jv-asleep") ? " (screen asleep)" : ""}`,
       `First conversation today: ${firstToday() ? "yes" : "no"}`,
       ...weatherLines()
     ];
@@ -189,6 +209,7 @@
       const date = new Date(raw);
       return Number.isNaN(date.valueOf()) || date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }).slice(0, 10);
+    lines.push(`Google Calendar: ${connected("googleCalendar") ? "connected (new events go there)" : "not connected (events stay on the mirror)"}.`);
     lines.push(events.length ? "Calendar (id | source | title | when | location):" : "Calendar: nothing coming up.");
     events.forEach((e) => lines.push(`- ${e.id || "?"} | ${e.source === "google" ? "Google" : "on-device"} | ${e.title} | ${e.allDay ? `${String(e.start).slice(0, 10)} all day` : (e.start || `${e.date} ${e.time}`)}${e.location ? ` | ${e.location}` : ""}`));
     const tasks = sampleData.tasks.filter((t) => !t.done).slice(0, 20);
@@ -201,15 +222,21 @@
       const rooms = [...new Map(homeAssistantEntities.filter((e) => e.areaId).map((e) => [e.areaId, e.area])).entries()];
       lines.push(rooms.length ? `Rooms (area id = name): ${rooms.map(([id, name]) => `${id} = ${name}`).join(", ")}.` : "Rooms: none set up in Home Assistant.");
       lines.push("Smart home devices (entity id | name | room | state):");
-      homeAssistantEntities.filter((e) => e.state !== "unavailable" && e.state !== "unknown").slice(0, 120).forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}${e.domain === "media_player" ? ` | TV/speaker${e.media?.title ? `, playing ${e.media.title}` : ""}` : ""}`));
+      jarvisDevices().forEach((e) => lines.push(`- ${e.id} | ${e.name} | ${e.area || "no room"} | ${e.state}${e.unit ? ` ${e.unit}` : ""}${e.brightness != null && e.state === "on" ? ` | brightness ${Math.round(e.brightness / 2.55)}%` : ""}${e.rgb && e.state === "on" ? ` | colour rgb(${e.rgb.join(",")})` : ""}${e.canColor ? " | colour bulb" : ""}${e.temperature != null ? ` | target ${e.temperature}` : ""}${e.percentage != null ? ` | speed ${e.percentage}%` : ""}${e.domain === "media_player" ? ` | TV/speaker${e.media?.title ? `, playing ${e.media.title}` : ""}${e.media?.volume != null ? `, volume ${Math.round(e.media.volume * 100)}%` : ""}${e.media?.source ? `, on ${e.media.source}` : ""}${e.media?.sources?.length ? `, sources: ${e.media.sources.slice(0, 25).join(" / ")}` : ""}` : ""}${e.domain === "alarm_control_panel" ? " | burglar alarm" : ""}${e.domain === "event" ? " | last happened at this time" : ""}`));
     }
     if (connected("smartHome")) { try { lines.push(...(window.ReflectHome3D?.describe() || [])); } catch {} }
     const timers = loadTimers();
-    lines.push(timers.length ? "Timers and reminders (id | kind | label | due):" : "Timers and reminders: none running.");
-    timers.forEach((t) => lines.push(`- ${t.id} | ${t.kind} | ${t.label} | ${new Date(t.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", second: t.kind === "timer" ? "2-digit" : undefined })}`));
+    lines.push(timers.length ? "Timers, reminders and scheduled actions (id | kind | label | due | repeat):" : "Timers, reminders and scheduled actions: none.");
+    timers.forEach((t) => lines.push(`- ${t.id} | ${t.kind === "action" ? "scheduled action" : t.kind} | ${t.label} | ${new Date(t.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", second: t.kind === "timer" ? "2-digit" : undefined })}${t.repeat && t.repeat !== "none" ? ` | ${t.repeat}` : ""}`));
+    const rules = loadRules();
+    if (rules.length) { lines.push("Device rules (id | label | when):"); rules.forEach((r) => lines.push(`- ${r.id} | ${r.label} | ${r.entity_id} becomes ${r.state}${r.once ? ", once" : ""}`)); }
+    const routines = loadRoutines();
+    lines.push(routines.length ? `Their saved routines: ${routines.map((r) => `${r.name} (${r.steps.length} steps)`).join(", ")}.` : "Their saved routines: none yet.");
     const shown = Object.entries(profile.widgets || {}).filter(([, w]) => w.visible).map(([id]) => id);
     lines.push(`Home widgets showing: ${shown.join(", ") || "none"}.`);
-    lines.push(`Display: brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}.`);
+    lines.push(`Display: brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}, warmth ${profile.warmth || 0}%, appearance ${profile.theme}, accent ${profile.accentColor}, ${profile.clockFormat}-hour clock. Your speaking volume: ${Math.round(voiceVolume() * 100)}%.`);
+    const layout = Object.entries(profile.widgets || {}).filter(([, w]) => w.visible).map(([id, w]) => `${id} ${w.zone} ${w.size}`);
+    lines.push(`Home layout (widget zone size): ${layout.join(", ") || "empty"}.`);
     const memory = await loadMemory();
     lines.push(memory.facts.length ? "What you've learned about them:" : "What you've learned about them: nothing yet.");
     memory.facts.forEach((f) => lines.push(`- ${f}`));
@@ -270,6 +297,7 @@
       return `${await house.runScene(input.scene)} scene running.`;
     }
     if (tool === "show_screen") {
+      if (input.screen === "back") { const prev = goBack(); if (!prev) throw new Error("There's no screen to go back to."); return `Back to ${prev.replace("homekit", "smart home").replace("house3d", "the 3D house")}.`; }
       const view = input.screen === "smart_home" ? "homekit" : input.screen === "house" ? "house3d" : input.screen;
       if (!document.getElementById(`view-${view}`)) throw new Error(`There is no ${input.screen} screen.`);
       showView(view, false);
@@ -291,12 +319,23 @@
       } else throw new Error("Say which device or room.");
       const service = { turn_on: `${d}.turn_on`, turn_off: `${d}.turn_off`, toggle: `${d}.toggle`, activate: "scene.turn_on", lock: "lock.lock", unlock: "lock.unlock", open: "cover.open_cover", close: "cover.close_cover", set_temperature: "climate.set_temperature", heating_off: "climate.set_hvac_mode", heating_schedule: "climate.set_hvac_mode",
         play: "media_player.media_play", pause: "media_player.media_pause", play_pause: "media_player.media_play_pause", next: "media_player.media_next_track", previous: "media_player.media_previous_track",
-        volume_up: "media_player.volume_up", volume_down: "media_player.volume_down", mute: "media_player.volume_mute", unmute: "media_player.volume_mute", set_volume: "media_player.volume_set" }[input.action];
+        volume_up: "media_player.volume_up", volume_down: "media_player.volume_down", mute: "media_player.volume_mute", unmute: "media_player.volume_mute", set_volume: "media_player.volume_set", select_source: "media_player.select_source",
+        set_position: "cover.set_cover_position", set_percentage: "fan.set_percentage", arm_home: "alarm_control_panel.alarm_arm_home", arm_away: "alarm_control_panel.alarm_arm_away", arm_night: "alarm_control_panel.alarm_arm_night", disarm: "alarm_control_panel.alarm_disarm" }[input.action];
       if (!service) throw new Error(`Unknown action ${input.action}.`);
       Object.assign(data, lightOptions(d, input));
       if (service.startsWith("media_player.") && d !== "media_player" && !["turn_on", "turn_off", "toggle"].includes(input.action)) throw new Error(`${label} isn't a TV or speaker.`);
       if (input.action === "mute" || input.action === "unmute") data.is_volume_muted = input.action === "mute";
       if (input.action === "set_volume") { if (!Number.isFinite(input.volume_pct)) throw new Error("A volume is needed."); data.volume_level = Math.max(0, Math.min(100, input.volume_pct)) / 100; }
+      if (input.action === "select_source") {
+        const entity = homeAssistantEntities.find((e) => e.id === data.entity_id), wanted = String(input.source || "").trim();
+        if (!wanted) throw new Error("Which input or app?");
+        const list = entity?.media?.sources || [], low = wanted.toLowerCase();
+        data.source = list.find((x) => x.toLowerCase() === low) || list.find((x) => x.toLowerCase().includes(low)) || list.find((x) => low.includes(x.toLowerCase())) || wanted;
+      }
+      if (input.action === "set_position") { if (!Number.isFinite(input.position)) throw new Error("How far open?"); data.position = Math.max(0, Math.min(100, Math.round(input.position))); }
+      if (input.action === "set_percentage") { if (!Number.isFinite(input.percentage)) throw new Error("What speed?"); data.percentage = Math.max(0, Math.min(100, Math.round(input.percentage))); }
+      if (input.action.startsWith("arm_") || input.action === "disarm") { if (input.code) data.code = String(input.code); }
+      if (Number.isFinite(input.transition) && d === "light" && ["turn_on", "turn_off"].includes(input.action)) data.transition = Math.max(0, Math.min(3600, input.transition));
       if (input.action === "heating_off") data.hvac_mode = "off";
       if (input.action === "heating_schedule") data.hvac_mode = "auto";
       if (input.action === "set_temperature") { if (!Number.isFinite(input.temperature)) throw new Error("A temperature is needed."); data.temperature = input.temperature; }
@@ -313,7 +352,12 @@
     if (tool === "music") {
       // "Pause" with no Spotify means whatever is playing on a TV or speaker.
       const tv = homeAssistantEntities.filter((e) => e.domain === "media_player").sort((a, b) => (b.state === "playing") - (a.state === "playing") || (b.state === "paused") - (a.state === "paused"))[0];
-      if (!connected("spotify") && tv && input.action !== "play_search") return runTool("control_device", { entity_id: tv.id, action: input.action });
+      const tvAction = ["play", "pause", "next", "previous"].includes(input.action);
+      if (!connected("spotify") && tv && tvAction) return runTool("control_device", { entity_id: tv.id, action: input.action });
+      if (!connected("spotify") && tv && /^volume/.test(input.action)) return runTool("control_device", { entity_id: tv.id, action: input.action === "volume" ? "set_volume" : input.action, volume_pct: input.volume_pct });
+      if (!connected("spotify")) throw new Error("Spotify isn't connected. Connect it in Settings, Connections.");
+      // Spotify connected but quiet while the TV is playing: "pause" means the TV.
+      if (connected("spotify") && tv && tvAction && !sampleData.track?.playing && (input.action === "pause" ? tv.state === "playing" : tv.state === "paused")) return runTool("control_device", { entity_id: tv.id, action: input.action });
       const done = await spotifyCommand(input);
       setTimeout(loadSpotify, 900);
       return done;
@@ -335,6 +379,11 @@
     if (tool === "add_event") {
       const title = String(input.title || "").trim().slice(0, 80);
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(input.date || "") || !/^\d{2}:\d{2}$/.test(input.time || "")) throw new Error("The event needs a title, a YYYY-MM-DD date and an HH:MM time.");
+      if (input.calendar !== "mirror" && connected("googleCalendar")) {
+        await api("/api/google/calendar/events", { method: "POST", body: JSON.stringify({ title, start: new Date(`${input.date}T${input.time}:00`).toISOString(), minutes: input.minutes, location: input.location || "" }) });
+        await loadGoogleCalendar();
+        return `Added "${title}" to Google Calendar on ${input.date} at ${input.time}.`;
+      }
       sampleData.events.push({ id: crypto.randomUUID(), title, date: input.date, time: input.time, location: String(input.location || "").trim().slice(0, 80), source: "device" });
       saveDeviceData(); renderCalendarPage(); renderHome();
       return `Added "${title}" on ${input.date} at ${input.time}.`;
@@ -354,10 +403,36 @@
       saveDeviceData(); renderTaskPage(); renderHome();
       return `Updated task "${task.title}".`;
     }
+    if (tool === "update_event") {
+      const event = sampleData.events.find((e) => e.id === input.event_id);
+      if (!event) throw new Error("That event is not on the calendar.");
+      if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error("The date must be YYYY-MM-DD.");
+      if (input.time && !/^\d{2}:\d{2}$/.test(input.time)) throw new Error("The time must be HH:MM.");
+      const old = new Date(event.start || `${event.date}T${event.time || "09:00"}`);
+      const pad = (n) => String(n).padStart(2, "0");
+      const date = input.date || (Number.isNaN(old.valueOf()) ? "" : `${old.getFullYear()}-${pad(old.getMonth() + 1)}-${pad(old.getDate())}`);
+      const time = input.time || (Number.isNaN(old.valueOf()) ? "09:00" : `${pad(old.getHours())}:${pad(old.getMinutes())}`);
+      const moved = Boolean(input.date || input.time || input.minutes);
+      if (event.source === "google") {
+        const length = input.minutes || (event.end && !Number.isNaN(old.valueOf()) ? Math.round((new Date(event.end) - old) / 60000) : 60);
+        await api(`/api/google/calendar/events/${encodeURIComponent(event.id)}`, { method: "PATCH", body: JSON.stringify({ ...(input.title ? { title: input.title } : {}), ...(input.location !== undefined ? { location: input.location } : {}), ...(moved ? { start: new Date(`${date}T${time}:00`).toISOString(), minutes: length } : {}) }) });
+        await loadGoogleCalendar();
+      } else {
+        if (input.title) event.title = String(input.title).trim().slice(0, 80) || event.title;
+        if (input.location !== undefined) event.location = String(input.location || "").slice(0, 80);
+        if (moved) { event.date = date; event.time = time; delete event.start; }
+        saveDeviceData(); renderCalendarPage(); renderHome();
+      }
+      return `Updated "${input.title || event.title}"${moved ? ` to ${date} at ${time}` : ""}.`;
+    }
     if (tool === "delete_event") {
       const event = sampleData.events.find((e) => e.id === input.event_id);
       if (!event) throw new Error("That event is not on the calendar.");
-      if (event.source === "google") throw new Error("Google Calendar events can only be deleted in Google Calendar.");
+      if (event.source === "google") {
+        await api(`/api/google/calendar/events/${encodeURIComponent(event.id)}`, { method: "DELETE" });
+        await loadGoogleCalendar();
+        return `Cancelled "${event.title}" in Google Calendar.`;
+      }
       sampleData.events = sampleData.events.filter((e) => e !== event);
       saveDeviceData(); renderCalendarPage(); renderHome();
       return `Deleted "${event.title}".`;
@@ -383,14 +458,18 @@
         at = next.getTime();
       }
       if (!Number.isFinite(at) || at <= Date.now()) throw new Error("That time has already passed.");
-      addTimer({ kind: "reminder", label: text, at });
+      const repeat = ["daily", "weekdays", "weekends", "weekly"].includes(input.repeat) ? input.repeat : "none";
+      if (repeat !== "none") at = nextRepeat(at, repeat, true);
+      addTimer({ kind: "reminder", label: text, at, repeat });
+      if (repeat !== "none") return `Reminder set ${repeat === "weekly" ? `every ${new Date(at).toLocaleDateString("en-GB", { weekday: "long" })}` : repeat === "daily" ? "every day" : `on ${repeat}`} at ${input.time}: ${text}.`;
       return `Reminder set for ${new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}: ${text}.`;
     }
     if (tool === "cancel_timer") {
-      const timers = loadTimers();
+      const timers = loadTimers(), rules = loadRules();
       const keep = input.id === "all" ? [] : timers.filter((t) => t.id !== input.id);
-      if (keep.length === timers.length) throw new Error("No timer or reminder with that id.");
-      saveTimers(keep);
+      const keepRules = input.id === "all" ? [] : rules.filter((r) => r.id !== input.id);
+      if (keep.length === timers.length && keepRules.length === rules.length) throw new Error("Nothing with that id is set.");
+      saveTimers(keep); saveRules(keepRules);
       return input.id === "all" ? "Cancelled every timer and reminder." : "Cancelled.";
     }
     if (tool === "set_weather_location") {
@@ -446,12 +525,333 @@
       return `Forgot: ${best[0]}`;
     }
     if (tool === "set_display") {
+      if (input.screen === "off") { setTimeout(sleepScreen, 2500); return "Screen going to sleep. Say my name or touch the glass to wake it."; }
+      if (input.screen === "on") wakeScreen();
       if (Number.isFinite(input.brightness)) profile.brightness = Math.max(30, Math.min(100, Math.round(input.brightness)));
       if (typeof input.night_mode === "boolean") profile.nightMode = input.night_mode;
-      saveProfile(); applyDisplay();
-      return `Display brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}.`;
+      if (Number.isFinite(input.warmth)) profile.warmth = Math.max(0, Math.min(100, Math.round(input.warmth)));
+      if (["dark", "light", "auto"].includes(input.appearance)) profile.theme = input.appearance;
+      if (input.clock_format === "12" || input.clock_format === "24") profile.clockFormat = input.clock_format;
+      if (input.accent_color) {
+        const hex = colourHex(input.accent_color);
+        if (!hex) throw new Error(`I don't know the colour ${input.accent_color}.`);
+        profile.accentColor = hex;
+      }
+      saveProfile(); applyProfile(); renderHome(); renderSettings();
+      return `Display brightness ${profile.brightness}%, night mode ${profile.nightMode ? "on" : "off"}, warmth ${profile.warmth || 0}%, ${profile.theme} appearance, ${profile.clockFormat}-hour clock, accent ${profile.accentColor}.`;
+    }
+    if (tool === "navigate") return navigate(input);
+    if (tool === "say") { const text = String(input.text || "").trim(); if (text) announce(text); return "Said it."; }
+    if (tool === "home_screen") return homeScreen(input);
+    if (tool === "schedule") {
+      const actions = checkSteps(input.actions);
+      const label = String(input.label || "").trim().slice(0, 60) || "Scheduled";
+      const repeat = ["daily", "weekdays", "weekends", "weekly"].includes(input.repeat) ? input.repeat : "none";
+      let at;
+      if (input.at) {
+        if (!/^\d{2}:\d{2}$/.test(input.at)) throw new Error("The time must be HH:MM.");
+        if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error("The date must be YYYY-MM-DD.");
+        const when = input.date ? new Date(`${input.date}T${input.at}:00`) : (() => { const [h, m] = input.at.split(":").map(Number), n = new Date(); n.setHours(h, m, 0, 0); if (n <= new Date()) n.setDate(n.getDate() + 1); return n; })();
+        at = when.getTime();
+      } else {
+        const ms = (Number(input.in_minutes) || 0) * 60000 + (Number(input.in_seconds) || 0) * 1000;
+        if (ms < 1000) throw new Error("When should I do it?");
+        at = Date.now() + ms;
+      }
+      if (!Number.isFinite(at) || at <= Date.now()) throw new Error("That time has already passed.");
+      if (repeat !== "none") at = nextRepeat(at, repeat, true);
+      addTimer({ kind: "action", label, at, repeat, actions, say: String(input.say || "").slice(0, 200) });
+      return `Scheduled "${label}" for ${new Date(at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", second: at - Date.now() < 120000 ? "2-digit" : undefined })}${repeat !== "none" ? `, repeating ${repeat}` : ""}.`;
+    }
+    if (tool === "when_device") {
+      const actions = checkSteps(input.actions);
+      if (!homeAssistantEntities.some((e) => e.id === input.entity_id)) throw new Error(`No device with id ${input.entity_id}.`);
+      const state = String(input.state || "").trim().toLowerCase();
+      if (!state) throw new Error("Which state should I watch for?");
+      const rule = { id: `r${Date.now().toString(36)}`, label: String(input.label || "").slice(0, 60) || `When ${input.entity_id} is ${state}`, entity_id: input.entity_id, state, once: Boolean(input.once), actions, say: String(input.say || "").slice(0, 200) };
+      saveRules([...loadRules(), rule].slice(-30));
+      return `Rule saved: ${rule.label}.`;
+    }
+    if (tool === "routine") {
+      const key = String(input.name || "").trim().toLowerCase();
+      if (!key) throw new Error("Which routine?");
+      const list = loadRoutines(), found = list.find((r) => r.name.toLowerCase() === key) || list.find((r) => r.name.toLowerCase().includes(key) || key.includes(r.name.toLowerCase()));
+      if (input.action === "save") {
+        const steps = checkSteps(input.steps);
+        saveRoutines([...list.filter((r) => r.name.toLowerCase() !== key), { name: String(input.name).trim().slice(0, 40), steps }].slice(-30));
+        return `Routine "${input.name}" saved with ${steps.length} step${steps.length === 1 ? "" : "s"}.`;
+      }
+      if (!found) throw new Error(`There's no routine called ${input.name}.`);
+      if (input.action === "delete") { saveRoutines(list.filter((r) => r !== found)); return `Deleted the ${found.name} routine.`; }
+      const done = await runSteps(found.steps);
+      return `Ran ${found.name}: ${done}`;
+    }
+    if (tool === "look_at_camera") {
+      if (!connected("smartHome")) throw new Error("Home Assistant is not connected.");
+      const cams = homeAssistantEntities.filter((e) => e.domain === "camera");
+      if (!cams.length) throw new Error("There are no cameras connected.");
+      const want = String(input.camera || "").toLowerCase();
+      const cam = (want && (cams.find((c) => c.id === want) || cams.find((c) => `${c.id} ${c.name}`.toLowerCase().includes(want)))) || cams.find((c) => /door|ring|bell/i.test(`${c.id} ${c.name}`) && !/live_view/.test(c.id)) || cams.find((c) => /door|ring|bell/i.test(`${c.id} ${c.name}`)) || cams[0];
+      const response = await fetch(`/api/homeassistant/camera/${encodeURIComponent(cam.id)}?still=1&t=${Date.now()}`, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`The ${cam.name} camera isn't sending a picture right now.`);
+      const blob = await response.blob();
+      if (!/^image\/(jpeg|png|webp|gif)/.test(blob.type) || blob.size > 4.5e6) throw new Error(`The ${cam.name} camera picture couldn't be read.`);
+      const data = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1]); r.onerror = reject; r.readAsDataURL(blob); });
+      return { text: `Looked at the ${cam.name} camera.`, content: [{ type: "text", text: `The ${cam.name} camera's picture right now (${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}). Describe briefly who or what is there.` }, { type: "image", source: { type: "base64", media_type: blob.type.split(";")[0], data } }] };
+    }
+    if (tool === "device_history") {
+      if (!connected("smartHome")) throw new Error("Home Assistant is not connected.");
+      const ids = (Array.isArray(input.entity_ids) ? input.entity_ids : []).filter((id) => homeAssistantEntities.some((e) => e.id === id));
+      if (!ids.length) throw new Error("None of those devices are in the list.");
+      const hours = Math.max(1, Math.min(168, Number(input.hours) || 24));
+      const { changes = [] } = await api(`/api/homeassistant/history?ids=${encodeURIComponent(ids.join(","))}&hours=${hours}`);
+      const name = (id) => homeAssistantEntities.find((e) => e.id === id)?.name || id;
+      const fmt = (iso) => new Date(iso).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+      if (!changes.length) return `Nothing recorded for ${ids.map(name).join(", ")} in the last ${hours} hours.`;
+      // An event entity's state is the time it happened; anything else, what it changed to.
+      return `In the last ${hours} hours: ${changes.slice(-25).map((c) => Number.isFinite(Date.parse(c.state)) && /T/.test(c.state) ? `${name(c.id)} at ${fmt(c.state)}` : `${name(c.id)} ${c.state} at ${fmt(c.at)}`).join("; ")}.`;
+    }
+    if (tool === "voice_settings") {
+      let v = voiceVolume();
+      if (Number.isFinite(input.volume_pct)) v = input.volume_pct / 100;
+      else if (input.change === "louder") v += 0.2;
+      else if (input.change === "quieter") v -= 0.2;
+      v = Math.max(0.1, Math.min(1, v));
+      try { localStorage.setItem(volumeKey, String(v)); } catch {}
+      if (A.outGain) A.outGain.gain.value = v;
+      return `Speaking volume ${Math.round(v * 100)}%.`;
+    }
+    if (tool === "check_for_updates") {
+      const before = appVersionText;
+      const health = await api("/api/health");
+      if (health.version && before && health.version !== before) { setTimeout(() => location.reload(), 6000); return `Version ${health.version} is installed. Restarting into it in a few seconds (was ${before}).`; }
+      return `Running the latest installed version, ${health.version || before || "unknown"}. New versions arrive when the mirror's software is updated, then load by themselves.`;
     }
     throw new Error(`Unknown tool ${tool}.`);
+  }
+
+  // ---------- Steps, schedules, rules and routines ----------
+  // Scheduled actions, device rules and routines all hold a list of ordinary tool calls, run in turn.
+  const stepTools = new Set(["show_screen", "show_room", "show_house", "show_camera", "run_scene", "control_device", "music", "add_task", "set_timer", "set_reminder", "set_weather_location", "show_widget", "set_display", "navigate", "home_screen", "routine", "voice_settings", "say"]);
+  function checkSteps(steps) {
+    const list = (Array.isArray(steps) ? steps : []).filter((st) => st && typeof st.tool === "string" && st.input && typeof st.input === "object").slice(0, 20);
+    if (!list.length) throw new Error("There's nothing to do in that.");
+    const bad = list.find((st) => !stepTools.has(st.tool) || (st.tool === "routine" && st.input.action !== "run"));
+    if (bad) throw new Error(`${bad.tool} can't be part of a schedule or routine.`);
+    return list.map((st) => ({ tool: st.tool, input: st.input }));
+  }
+  let stepDepth = 0;
+  async function runSteps(steps) {
+    if (stepDepth > 3) throw new Error("Those routines call each other too many times.");
+    stepDepth++;
+    const done = [];
+    try {
+      for (const st of steps) {
+        try { const out = await runTool(st.tool, st.input); done.push(typeof out === "string" ? out : out.text); }
+        catch (error) { done.push(`(${st.tool} failed: ${error.message})`); }
+      }
+    } finally { stepDepth--; }
+    return done.join(" ");
+  }
+  // The next time a repeating reminder or action is due, keeping its clock time.
+  function nextRepeat(at, repeat, includeSame) {
+    const d = new Date(at);
+    const ok = (x) => { const day = x.getDay(); return repeat === "weekdays" ? day > 0 && day < 6 : repeat === "weekends" ? day === 0 || day === 6 : true; };
+    if (!includeSame) d.setDate(d.getDate() + (repeat === "weekly" ? 7 : 1));
+    while (!ok(d) || d.getTime() <= Date.now()) d.setDate(d.getDate() + (repeat === "weekly" ? 7 : 1));
+    return d.getTime();
+  }
+  const rulesKey = "reflect-os-assistant-rules", routinesKey = "reflect-os-assistant-routines";
+  const loadList = (key) => { try { const list = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
+  const saveList = (key, list) => { try { localStorage.setItem(key, JSON.stringify(list)); } catch {} };
+  const loadRules = () => loadList(rulesKey), saveRules = (list) => saveList(rulesKey, list);
+  const loadRoutines = () => loadList(routinesKey), saveRoutines = (list) => saveList(routinesKey, list);
+  // Device rules: when a watched device changes to the wanted state, its actions run.
+  const lastStates = new Map();
+  window.ReflectBridge?.onChange?.((changed) => {
+    const rules = loadRules();
+    for (const e of changed || homeAssistantEntities) {
+      const before = lastStates.get(e.id), now = String(e.state).toLowerCase();
+      lastStates.set(e.id, now);
+      if (!changed || before === undefined || before === now) continue;
+      rules.filter((r) => r.entity_id === e.id && r.state === now).forEach((r) => {
+        if (r.once) saveRules(loadRules().filter((x) => x.id !== r.id));
+        runSteps(r.actions).catch(() => {});
+        if (r.say) announce(r.say);
+      });
+    }
+  });
+
+  // ---------- Getting around ----------
+  function scrollArea() {
+    const view = document.querySelector(".view.is-active");
+    if (!view) return document.scrollingElement;
+    const all = [view, ...view.querySelectorAll("*")].filter((x) => x.scrollHeight > x.clientHeight + 40 && /(auto|scroll)/.test(getComputedStyle(x).overflowY));
+    return all.sort((a, b) => b.clientHeight - a.clientHeight)[0] || document.scrollingElement;
+  }
+  function spotlight(id) {
+    const target = document.getElementById(id);
+    if (!target) throw new Error("That part isn't on the screen.");
+    (target.closest(".cal-panel") || target).scrollIntoView({ behavior: "smooth", block: "center" });
+    const panel = target.closest(".cal-panel") || target;
+    panel.classList.remove("jv-spotlight"); void panel.offsetWidth; panel.classList.add("jv-spotlight");
+    setTimeout(() => panel.classList.remove("jv-spotlight"), 2200);
+  }
+  function navigate(input) {
+    const v = String(input.value || "").trim(), low = v.toLowerCase();
+    switch (input.action) {
+      case "calendar_view":
+        if (!["day", "week", "upcoming"].includes(low)) throw new Error("The calendar has day, week and upcoming views.");
+        showView("calendar", false);
+        calendarView = low;
+        document.querySelectorAll("[data-calendar-view]").forEach((b) => b.classList.toggle("is-selected", b.dataset.calendarView === low));
+        renderCalendarPage();
+        return `Showing the calendar's ${low} view.`;
+      case "calendar_date":
+        if (low && low !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error("The date must be YYYY-MM-DD.");
+        showView("calendar", false);
+        calendarFocus = !low || low === "today" ? "" : v;
+        renderCalendarPage();
+        return calendarFocus ? `Showing ${new Date(`${v}T12:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.` : "Back to today.";
+      case "task_filter":
+        if (!["today", "upcoming", "completed", "work", "home"].includes(low)) throw new Error("Tasks can show today, upcoming, completed, work or home.");
+        showView("tasks", false);
+        taskFilter = low;
+        document.querySelectorAll("[data-task-filter]").forEach((b) => b.classList.toggle("is-selected", b.dataset.taskFilter === low));
+        renderTaskPage();
+        return `Showing ${low} tasks.`;
+      case "music_section": {
+        const id = { playlists: "spotifyPlaylists", recent: "spotifyRecent", search: "spotifyResults" }[low];
+        if (!id) throw new Error("Music has playlists, recently played and search results.");
+        showView("music", false);
+        if (low === "recent") loadSpotifyRecent?.();
+        setTimeout(() => spotlight(id), 350);
+        return `Showing ${low === "recent" ? "recently played" : low}.`;
+      }
+      case "weather_section": {
+        const id = { hourly: "weatherHourly", daily: "weatherDaily", details: "weatherOutlook" }[low];
+        if (!id) throw new Error("Weather has hourly, daily and details.");
+        showView("weather", false);
+        setTimeout(() => spotlight(id), 350);
+        return `Showing the ${low === "daily" ? "seven-day" : low} forecast.`;
+      }
+      case "settings_page": {
+        const page = { account: "profile", layout: "home", widgets: "home", connections: "connections", services: "connections" }[low] || low;
+        if (!document.querySelector(`.settings-page[data-page="${page}"]`)) throw new Error(`There's no ${v} settings page.`);
+        showView("settings", false);
+        openSettingsPage(page);
+        return `Opened ${settingsTitles[page] || page} settings.`;
+      }
+      case "connect": {
+        if (/smart|home|hue|assistant/.test(low)) { showView("devices", false); return "Opened Devices, where smart home things are added."; }
+        if (!/spotify|google|calendar/.test(low)) throw new Error("I can open the connections for Spotify, Google Calendar or the smart home.");
+        showView("settings", false);
+        openSettingsPage("connections");
+        return `Opened Connections. Tap Connect next to ${/spotify/.test(low) ? "Spotify" : "Google Calendar"}.`;
+      }
+      case "find_device": {
+        showView("devices", false);
+        const box = document.getElementById("dvSearch");
+        if (box) { box.value = v; box.dispatchEvent(new Event("input")); }
+        return v ? `Showing ${v} in Devices.` : "Opened Devices.";
+      }
+      case "open_controls": {
+        const e = homeAssistantEntities.find((x) => x.id === v) || homeAssistantEntities.find((x) => x.name.toLowerCase() === low);
+        if (!e) throw new Error(`No device called ${v}.`);
+        if (e.domain === "light") openLightPanel(e.id);
+        else if (e.domain === "climate") openHeatPanel(e.id);
+        else if (e.domain === "media_player") openMediaPanel(e.id);
+        else throw new Error(`${e.name} has no control panel; I can switch it for you instead.`);
+        return `Opened the ${e.name} controls.`;
+      }
+      case "open_add":
+        if (low !== "event" && low !== "task") throw new Error("I can open the add event or add task box.");
+        showView(low === "event" ? "calendar" : "tasks", false);
+        openItemDialog(low);
+        return `Opened the add ${low} box.`;
+      case "close": {
+        let closed = 0;
+        document.querySelectorAll("dialog[open]").forEach((d) => { d.close(); closed++; });
+        if (document.querySelector(".db-pop.is-open")) { window.ReflectDoorbell?.hide(); closed++; }
+        try { window.ReflectHome3D?.closeCamera?.(); } catch {}
+        const camClose = document.querySelector('[aria-label="Close camera"]');
+        if (camClose) { camClose.click(); closed++; }
+        if (settingsPage) { closeSettingsPage(); closed++; }
+        if (isEditing) { setEditing(false); closed++; }
+        if (document.body.classList.contains("jv-asleep")) wakeScreen();
+        return closed ? "Closed." : "Nothing was open.";
+      }
+      case "scroll": {
+        const area = scrollArea(), up = low === "up";
+        area.scrollBy({ top: (up ? -1 : 1) * Math.max(240, area.clientHeight * 0.6), behavior: "smooth" });
+        return `Scrolled ${up ? "up" : "down"}.`;
+      }
+    }
+    throw new Error(`Unknown navigate action ${input.action}.`);
+  }
+  function homeScreen(input) {
+    if (input.action === "edit_layout") { showView("home", false); setEditing(true); return "Layout editing on. Drag widgets around, or tell me where to put them."; }
+    if (input.action === "done_editing") { setEditing(false); return "Layout saved."; }
+    if (input.action === "reset_layout") {
+      const account = profile.account, addOns = profile.addOns, photos = profile.photos;
+      profile.widgets = clone(defaultProfile.widgets);
+      Object.assign(profile, { account, addOns, photos });
+      saveProfile(); renderHome(); renderWidgetSettings();
+      return "Home screen back to the normal layout.";
+    }
+    if (input.action === "next_quote") {
+      const pool = affirmationPool();
+      if (!pool.length) throw new Error("There are no affirmations or quotes set up.");
+      if (!profile.widgets.affirmations?.visible) { profile.widgets.affirmations.visible = true; saveProfile(); }
+      affirmationIndex = (affirmationIndex + 1) % pool.length;
+      showView("home", false); renderHome();
+      const item = pool[affirmationIndex];
+      return `Showing: ${typeof item === "string" ? item : `${item.t} (${item.a})`}`;
+    }
+    if (input.action === "next_photo" || input.action === "slideshow") {
+      if (!photoRecords.length) throw new Error("There are no photos on the mirror yet. Add some in Settings, Photos.");
+      profile.widgets.photos.visible = true; saveProfile();
+      if (input.action === "next_photo") currentPhoto = (currentPhoto + 1) % photoRecords.length;
+      showView("home", false); renderHome(); renderWidgetSettings();
+      return input.action === "slideshow" ? `Photo slideshow on, ${photoRecords.length} photos.` : "Next photo.";
+    }
+    if (input.action === "arrange") {
+      const w = profile.widgets?.[input.widget], addOn = baseWidgets[input.widget]?.addOn;
+      if (!w || (addOn && !addOnInstalled(addOn))) throw new Error(`The ${input.widget} widget needs its add-on installed first, in Settings.`);
+      if (!input.zone && !input.size) throw new Error("Where should it go, or what size?");
+      if (input.zone) w.zone = input.zone;
+      if (input.size) w.size = input.size;
+      w.visible = true;
+      saveProfile(); showView("home", false); renderHome(); renderWidgetSettings();
+      return `${baseWidgets[input.widget].label} now ${w.size} in the ${w.zone.replace("-", " ")}.`;
+    }
+    throw new Error(`Unknown home screen action ${input.action}.`);
+  }
+  // Colour names (and #hex) for the accent colour, read the way the browser reads CSS colours.
+  function colourHex(name) {
+    const probe = document.createElement("i");
+    probe.style.color = "";
+    probe.style.color = String(name).trim().replace(/\s+/g, "");
+    if (!probe.style.color) return "";
+    document.body.appendChild(probe);
+    const rgb = getComputedStyle(probe).color.match(/\d+/g);
+    probe.remove();
+    return rgb ? `#${rgb.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("")}` : "";
+  }
+  // Screen sleep: the glass goes black (a plain mirror) until he hears his name or someone touches it.
+  const sleeper = document.createElement("div");
+  sleeper.className = "jv-sleep";
+  document.body.appendChild(sleeper);
+  function sleepScreen() { if (A.busy || A.state === "speaking") return setTimeout(sleepScreen, 1500); closeStage(); document.body.classList.add("jv-asleep"); }
+  function wakeScreen() { document.body.classList.remove("jv-asleep"); }
+  sleeper.addEventListener("pointerdown", wakeScreen);
+  // How loud he speaks, kept on this mirror.
+  const volumeKey = "reflect-os-assistant-volume";
+  function voiceVolume() { try { const v = Number(localStorage.getItem(volumeKey)); return v > 0 && v <= 1 ? v : 1; } catch { return 1; } }
+  function speechOut(ac) {
+    if (!A.outGain || A.outGain.context !== ac) { A.outGain = ac.createGain(); A.outGain.connect(ac.destination); }
+    A.outGain.gain.value = voiceVolume();
+    return A.outGain;
   }
 
   // ---------- Music ducking ----------
@@ -484,8 +884,14 @@
   // Jarvis sends music to wherever Spotify is already playing; otherwise to this mirror's own player
   // if it's ready; otherwise to any device with Spotify open (the app on a Mac or phone, a speaker).
   // Every failure is reported back, so he never claims to be playing something he isn't.
-  async function spotifyTarget() {
+  async function spotifyTarget(named) {
     const { devices = [] } = await api("/api/spotify/devices");
+    if (named) {
+      const want = String(named).toLowerCase(), mirrorWanted = /mirror|here|this/.test(want);
+      const found = devices.find((d) => d.name.toLowerCase() === want) || devices.find((d) => d.name.toLowerCase().includes(want) || want.includes(d.name.toLowerCase())) || (mirrorWanted && spotifyDeviceId && { id: spotifyDeviceId, name: "this mirror" });
+      if (!found) throw new Error(`Spotify can't see ${named}. It can play on: ${devices.map((d) => d.name).join(", ") || "nothing right now"}.`);
+      return found;
+    }
     const mirror = typeof spotifyDeviceId === "string" && spotifyDeviceId ? spotifyDeviceId : "";
     const pick = devices.find((d) => d.active) || (mirror && devices.find((d) => d.id === mirror)) || devices.find((d) => d.type === "Computer") || devices[0];
     if (pick) return pick;
@@ -503,7 +909,46 @@
   async function spotifyCommand(input) {
     const action = input.action;
     if (action === "pause" && !sampleData.track?.playing) { try { await spotifySend("pause", {}); } catch {} return "Music paused."; }
-    const device = await spotifyTarget();
+    if (action === "list_devices") {
+      const { devices = [] } = await api("/api/spotify/devices");
+      return devices.length ? `Spotify can play on: ${devices.map((d) => `${d.name}${d.active ? " (playing now)" : ""}`).join(", ")}.` : "Spotify isn't open on any speaker or app right now.";
+    }
+    if (action === "like") {
+      const playback = await api("/api/spotify/player").catch(() => ({}));
+      const id = playback.item?.id || String(sampleData.track?.uri || "").split(":").pop();
+      if (!id) throw new Error("Nothing is playing to like.");
+      await api("/api/spotify/like", { method: "POST", body: JSON.stringify({ id }) });
+      return `Saved ${playback.item?.name || sampleData.track?.title || "it"} to your Liked Songs.`;
+    }
+    const device = await spotifyTarget(input.device);
+    if (action === "move_to") {
+      if (!input.device) throw new Error("Which speaker?");
+      await api("/api/spotify/player/transfer", { method: "POST", body: JSON.stringify({ deviceId: device.id }) });
+      return `Music moved to ${device.name}.`;
+    }
+    if (action === "volume" || action === "volume_up" || action === "volume_down") {
+      const { devices = [] } = await api("/api/spotify/devices");
+      const now = devices.find((d) => d.id === device.id)?.volume ?? 50;
+      const level = action === "volume" ? input.volume_pct : now + (action === "volume_up" ? 15 : -15);
+      if (!Number.isFinite(level)) throw new Error("What volume?");
+      const v = Math.max(0, Math.min(100, Math.round(level)));
+      // While he's talking the music is turned down; the new level is what it comes back up to.
+      A.ducked = null;
+      await spotifySend("volume", { volume: v, deviceId: device.id });
+      return `Music volume ${v}% on ${device.name}.`;
+    }
+    if (action === "shuffle_on" || action === "shuffle_off") { await spotifySend("shuffle", { state: action === "shuffle_on", deviceId: device.id }); return `Shuffle ${action === "shuffle_on" ? "on" : "off"}.`; }
+    if (action === "repeat_on" || action === "repeat_off") { await spotifySend("repeat", { state: action === "repeat_on" ? "context" : "off", deviceId: device.id }); return `Repeat ${action === "repeat_on" ? "on" : "off"}.`; }
+    if (action === "play_playlist") {
+      const query = String(input.query || "").trim().toLowerCase();
+      if (!query) throw new Error("Which playlist?");
+      const { playlists = [] } = await api("/api/spotify/playlists");
+      const words = query.replace(/\bplaylist\b/g, "").trim();
+      const pick = playlists.find((p) => p.name.toLowerCase() === words) || playlists.find((p) => p.name.toLowerCase().includes(words)) || playlists.find((p) => words.split(/\s+/).every((w) => p.name.toLowerCase().includes(w)));
+      if (!pick) throw new Error(`You don't have a playlist called ${input.query}. You have ${playlists.slice(0, 8).map((p) => p.name).join(", ") || "no playlists"}.`);
+      await spotifySend("play", { contextUri: pick.uri, deviceId: device.id });
+      return `Playing your ${pick.name} playlist on ${device.name}.`;
+    }
     if (action === "play_search") {
       const query = String(input.query || "").trim();
       if (!query) throw new Error("Nothing to search for.");
@@ -528,6 +973,11 @@
     text = String(text || "").trim();
     clearTimeout(A.endTimer); A.heardFinal = "";
     if (!text) return;
+    // "Be quiet", "never mind": he stops at once, no need to ask Claude. A plain "stop" only means him
+    // when it cuts him off; otherwise it goes to Claude, as it may mean the music or the TV.
+    const hush = /^(stop talking|be quiet|quiet|shush|shut up|cancel|never ?mind|that's all|that's it|nothing|go away)[.!]*$/i.test(text);
+    const cutOff = /^(stop|stop it|enough)[.!]*$/i.test(text) && (A.busy || A.state === "speaking" || Date.now() - (A.interruptedAt || 0) < 5000);
+    if (hush || cutOff) { A.queued = ""; interrupt(); closeStage(); return; }
     // Asked something new while still working on the last one: that answer is dropped and this
     // question goes next.
     if (A.busy) { A.queued = text; interrupt(); showHeard(text); setState("thinking"); return; }
@@ -579,7 +1029,12 @@
         const uses = turn.filter((b) => b.type === "tool_use");
         if (result.stop_reason !== "tool_use" || !uses.length) { reply = said; break; }
         const results = await Promise.all(uses.map(async (use) => {
-          try { const done = String(await runTool(use.name, use.input || {})); logAction(done); return { type: "tool_result", tool_use_id: use.id, content: done }; }
+          try {
+            const out = await runTool(use.name, use.input || {});
+            const done = typeof out === "string" ? out : String(out.text);
+            logAction(done);
+            return { type: "tool_result", tool_use_id: use.id, content: typeof out === "string" ? out : out.content };
+          }
           catch (error) { logAction(error.message, true); emit({ error: error.message }); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
         }));
         A.conversation.push({ role: "user", content: results });
@@ -734,7 +1189,7 @@
         const u = new SpeechSynthesisUtterance(part.trim());
         if (A.voice) { u.voice = A.voice; u.lang = A.voice.lang; } else u.lang = "en-GB";
         // Lowering the pitch is what made these voices sound robotic; a natural pitch, slightly brisk, sounds human.
-        u.rate = 1.08; u.pitch = 1;
+        u.rate = 1.08; u.pitch = 1; u.volume = voiceVolume();
         u.onboundary = () => { A.speakPulse = 1; };
         u.onstart = () => { A.speakPulse = 1; firstSound(); };
         if (i === parts.length - 1) { u.onend = done; u.onerror = done; }
@@ -779,7 +1234,7 @@
     source.buffer = clip;
     A.outAnalyser = ac.createAnalyser(); A.outAnalyser.fftSize = 512;
     A.outBuffer = new Uint8Array(A.outAnalyser.fftSize);
-    source.connect(A.outAnalyser); A.outAnalyser.connect(ac.destination);
+    source.connect(A.outAnalyser); A.outAnalyser.connect(speechOut(ac));
     A.currentSource = source;
     return new Promise((resolve) => {
       source.onended = resolve;
@@ -796,8 +1251,8 @@
         const source = ac.createMediaElementSource(audio);
         A.outAnalyser = ac.createAnalyser(); A.outAnalyser.fftSize = 512;
         A.outBuffer = new Uint8Array(A.outAnalyser.fftSize);
-        source.connect(A.outAnalyser); A.outAnalyser.connect(ac.destination);
-      } catch { A.outAnalyser = null; }
+        source.connect(A.outAnalyser); A.outAnalyser.connect(speechOut(ac));
+      } catch { A.outAnalyser = null; audio.volume = voiceVolume(); }
     }
     return new Promise((resolve, reject) => {
       audio.onended = resolve;
@@ -907,7 +1362,7 @@
     A.lastAck = pick;
     const clip = A.acks[pick];
     const source = ac.createBufferSource();
-    source.buffer = clip; source.connect(ac.destination);
+    source.buffer = clip; source.connect(speechOut(ac));
     A.ackSource = source;
     A.ackPlaying = new Promise((resolve) => { source.onended = resolve; source.start(); })
       .finally(() => { if (A.ackSource === source) A.ackSource = null; });
@@ -931,7 +1386,7 @@
     fetch("/api/assistant/timing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(report) }).catch(() => {});
   }
   // Cuts Jarvis off mid-answer: anything still to come from that answer stays silent.
-  function interrupt() { A.turn++; A.timing = null; stopSpeaking(); }
+  function interrupt() { if (A.busy || A.state === "speaking") A.interruptedAt = Date.now(); A.turn++; A.timing = null; stopSpeaking(); }
   function stopSpeaking() {
     A.speakRun = (A.speakRun || 0) + 1;
     if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -1008,6 +1463,7 @@
     const match = transcript.match(wakePattern());
     if (!match) return;
     const after = transcript.slice(match.index + match[0].length).trim();
+    wakeScreen();
     listenForCommand(10000, !after);
     heard(after, isFinal);
   }
@@ -1165,6 +1621,7 @@
   }
 
   function activate() {
+    wakeScreen();
     audioContext();
     micAnalyser().catch(() => {});
     // A tap cuts him off, even mid-answer, and he listens.
@@ -1327,7 +1784,7 @@
   document.body.appendChild(timerChip);
   function loadTimers() { try { const list = JSON.parse(localStorage.getItem(timersKey) || "[]"); return Array.isArray(list) ? list : []; } catch { return []; } }
   function saveTimers(list) { try { localStorage.setItem(timersKey, JSON.stringify(list)); } catch {} renderTimers(); }
-  function addTimer(timer) { const list = loadTimers(); list.push({ id: `t${Date.now().toString(36)}`, set: Date.now(), ...timer }); list.sort((a, b) => a.at - b.at); saveTimers(list.slice(-12)); }
+  function addTimer(timer) { const list = loadTimers(); list.push({ id: `t${Date.now().toString(36)}`, set: Date.now(), ...timer }); list.sort((a, b) => a.at - b.at); saveTimers(list.slice(0, 40)); }
   function durationText(ms) {
     const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
     return [h && `${h} hour${h === 1 ? "" : "s"}`, m && `${m} minute${m === 1 ? "" : "s"}`, sec && `${sec} second${sec === 1 ? "" : "s"}`].filter(Boolean).join(" ") || "0 seconds";
@@ -1353,6 +1810,7 @@
   window.ReflectAssistant = { announce: (text) => announce(text) };
   function announce(text) {
     if (A.busy || A.state === "speaking") return setTimeout(() => announce(text), 1500);
+    wakeScreen();
     openStage();
     showHeard("");
     clearLog();
@@ -1363,9 +1821,14 @@
   setInterval(() => {
     const now = Date.now(), list = loadTimers(), due = list.filter((t) => t.at <= now);
     if (due.length) {
-      saveTimers(list.filter((t) => t.at > now));
+      // Repeating reminders and actions go straight back on the list for their next time.
+      const again = due.filter((t) => t.repeat && t.repeat !== "none").map((t) => ({ ...t, at: nextRepeat(t.at, t.repeat, false) }));
+      saveTimers([...list.filter((t) => t.at > now), ...again].sort((a, b) => a.at - b.at));
       // Skip anything that went off long ago while the mirror was off.
-      due.filter((t) => now - t.at < 10 * 60000).forEach((t) => announce(t.kind === "timer" ? `Your ${t.label} timer is done.` : `A reminder: ${t.label}.`));
+      due.filter((t) => now - t.at < 10 * 60000).forEach((t) => {
+        if (t.kind === "action") { runSteps(t.actions || []).catch(() => {}); if (t.say) announce(t.say); return; }
+        announce(t.kind === "timer" ? `Your ${t.label} timer is done.` : `A reminder: ${t.label}.`);
+      });
     } else renderTimers();
   }, 1000);
   renderTimers();
