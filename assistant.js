@@ -21,7 +21,7 @@
   root.dataset.state = "idle";
   root.innerHTML = `
     <button class="jv-mini" type="button" aria-label="Talk to the assistant"><span class="jv-mini-core"></span></button>
-    <div class="jv-stage" role="dialog" aria-modal="true" aria-label="Assistant">
+    <div class="jv-stage" role="dialog" aria-modal="false" aria-label="Assistant">
       <button class="jv-close" type="button" aria-label="Close">×</button>
       <i class="jv-br tl"></i><i class="jv-br tr"></i><i class="jv-br bl"></i><i class="jv-br br"></i>
       <div class="jv-tele jv-tele-l" aria-hidden="true"></div>
@@ -63,6 +63,8 @@
     A.open = true;
     // Power-up: the stage projects open from a line of light while the orb assembles itself.
     A.bootAt = performance.now();
+    A.dockRect = null;
+    dock(null, true);
     root.classList.add("is-open", "is-booting");
     clearTimeout(A.bootTimer);
     A.bootTimer = setTimeout(() => root.classList.remove("is-booting"), 1400);
@@ -95,6 +97,105 @@
     clearTimeout(A.closeTimer);
     A.closeTimer = setTimeout(() => { if (!A.busy && A.state !== "speaking" && A.state !== "listening") closeStage(); }, ms);
   }
+  // ---------- Corner panel ----------
+  // The panel sits in a corner while Jarvis talks. Given the area of the screen he is showing, it
+  // moves to the corner that covers the least of it (bottom right when nothing is in the way).
+  const GAP = 16;
+  function corners() {
+    const w = stage.offsetWidth || 360, h = stage.offsetHeight || 260;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    return [[vw - w - GAP, vh - h - GAP], [GAP, vh - h - GAP], [vw - w - GAP, GAP + 56], [GAP, GAP + 56]]
+      .map(([x, y]) => [Math.max(GAP, x), Math.max(GAP, y), w, h]);
+  }
+  function dock(avoid, instant) {
+    const spots = corners();
+    const overlap = ([x, y, w, h]) => !avoid ? 0
+      : Math.max(0, Math.min(x + w, avoid.right) - Math.max(x, avoid.left)) * Math.max(0, Math.min(y + h, avoid.bottom) - Math.max(y, avoid.top));
+    A.corner = spots.reduce((best, spot, i) => overlap(spot) < overlap(spots[best]) - 1 ? i : best, 0);
+    place(instant);
+  }
+  // Keeps the panel in its corner as the reply grows or the window changes size.
+  function place(instant) {
+    const [x, y] = corners()[A.corner || 0];
+    stage.classList.toggle("is-placing", !!instant);
+    stage.style.setProperty("--jv-x", `${Math.round(x)}px`);
+    stage.style.setProperty("--jv-y", `${Math.round(y)}px`);
+    if (instant) { void stage.offsetWidth; stage.classList.remove("is-placing"); }
+  }
+  // What Jarvis should fly to after a tool runs: the panel, tile or screen it just brought up.
+  function targetFor(tool, input) {
+    const shown = (n) => { if (!n || n.closest(".jv")) return null; const r = n.getBoundingClientRect(); return r.width > 24 && r.height > 24 && r.bottom > 0 && r.top < window.innerHeight ? n : null; };
+    const q = (s) => shown(document.querySelector(s));
+    const popup = () => q("dialog[open]") || [...document.querySelectorAll(".is-open")].map(shown).find((n) => n && getComputedStyle(n).position === "fixed");
+    const view = document.querySelector(".view.is-active");
+    const main = () => {
+      if (!view) return null;
+      if (view.id === "view-settings") return q("#settingsDetail:not([hidden])") || q(".settings-view .settings-main") || shown(view);
+      return shown(view.querySelector("#layoutGrid, .cal-main, .mu-player, .homekit-grid, .dv-catalog, .wx-hourly-panel, #house3dRoot")) || shown(view);
+    };
+    switch (tool) {
+      case "show_screen": return main();
+      case "navigate":
+        if (input.action === "close" || input.action === "scroll") return null;
+        if (input.action === "open_controls" || input.action === "open_add") return popup() || main();
+        if (input.action === "find_device") return q("#dvCatalog") || main();
+        return q(".jv-spotlight") || main();
+      case "show_widget": return (input.widget && q(`[data-widget="${CSS.escape(String(input.widget))}"]`)) || q("#layoutGrid");
+      case "home_screen":
+        if (input.action === "next_quote") return q('[data-widget="affirmations"]');
+        if (input.action === "next_photo" || input.action === "slideshow") return q('[data-widget="photos"]');
+        return input.action === "done_editing" ? null : q("#layoutGrid");
+      case "control_device": {
+        const id = input.entity_id || input.id;
+        return id ? q(`[data-ha-toggle="${CSS.escape(String(id))}"]`) : null;
+      }
+      case "show_room": case "show_house": case "show_camera": return q("#house3dRoot") || main();
+      case "look_at_camera": return popup();
+      case "set_weather_location": return view?.id === "view-weather" ? main() : q('[data-widget="weather"]');
+      default: return null;
+    }
+  }
+  // A spark leaves the orb, arcs across the glass to the target and brackets lock onto it.
+  function pointAt(target) {
+    if (!target || !A.open) return;
+    const r = target.getBoundingClientRect();
+    const o = canvas.getBoundingClientRect();
+    const from = o.width ? [o.left + o.width / 2, o.top + o.height / 2] : [window.innerWidth - 60, window.innerHeight - 60];
+    const to = [Math.min(Math.max(r.left + r.width / 2, 20), window.innerWidth - 20), Math.min(Math.max(r.top + r.height / 2, 20), window.innerHeight - 20)];
+    A.dockRect = r;
+    dock(r);
+    if (HUD.reduced() || !Element.prototype.animate) return lockOn(r);
+    const bend = Math.min(220, Math.hypot(to[0] - from[0], to[1] - from[1]) * 0.35);
+    const mid = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - bend];
+    const path = (s) => [
+      { transform: `translate(${from[0]}px, ${from[1]}px) scale(${0.4 * s})`, opacity: 0 },
+      { transform: `translate(${from[0]}px, ${from[1]}px) scale(${1.4 * s})`, opacity: 1, offset: 0.1 },
+      { transform: `translate(${mid[0]}px, ${mid[1]}px) scale(${s})`, opacity: 1, offset: 0.55 },
+      { transform: `translate(${to[0]}px, ${to[1]}px) scale(${1.8 * s})`, opacity: 1, offset: 0.92 },
+      { transform: `translate(${to[0]}px, ${to[1]}px) scale(${3 * s})`, opacity: 0 }
+    ];
+    [0, 1, 2, 3].forEach((i) => {
+      const dot = document.createElement("i");
+      dot.className = `jv-flyer${i ? " is-trail" : ""}`;
+      root.appendChild(dot);
+      const run = dot.animate(path(i ? 1 - i * 0.2 : 1), { duration: 720, delay: i * 45, easing: "cubic-bezier(.55, 0, .3, 1)", fill: "both" });
+      run.onfinish = () => dot.remove();
+      if (!i) setTimeout(() => lockOn(target.getBoundingClientRect()), 640);
+    });
+  }
+  function lockOn(r) {
+    document.querySelectorAll(".jv-lock").forEach((n) => n.remove());
+    const pad = 6, box = document.createElement("div");
+    box.className = "jv-lock";
+    const left = Math.max(4, r.left - pad), top = Math.max(4, r.top - pad);
+    Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${Math.min(window.innerWidth - 4, r.right + pad) - left}px`, height: `${Math.min(window.innerHeight - 4, r.bottom + pad) - top}px` });
+    box.innerHTML = "<i></i><i></i><i></i><i></i>";
+    root.appendChild(box);
+    setTimeout(() => box.remove(), 1900);
+  }
+  window.addEventListener("resize", () => { if (A.open) place(true); });
+  if (window.ResizeObserver) new ResizeObserver(() => { if (A.open) place(); }).observe(stage);
+
   function showHeard(text) { emit({ heard: text || "" }); HUD.decode(heardEl, text ? `“${text}”` : "", { cps: 160, scramble: 60, caret: false }); }
   // Replies decode onto the glass: each letter flickers through HUD glyphs, then locks in with a flash.
   function showReply(text) {
@@ -1033,6 +1134,8 @@
             const out = await runTool(use.name, use.input || {});
             const done = typeof out === "string" ? out : String(out.text);
             logAction(done);
+            const target = () => { try { pointAt(targetFor(use.name, use.input || {})); } catch {} };
+            setTimeout(target, 420);
             return { type: "tool_result", tool_use_id: use.id, content: typeof out === "string" ? out : out.content };
           }
           catch (error) { logAction(error.message, true); emit({ error: error.message }); return { type: "tool_result", tool_use_id: use.id, content: error.message, is_error: true }; }
@@ -1837,7 +1940,6 @@
   mini.addEventListener("click", activate);
   el(".jv-close").addEventListener("click", closeStage);
   canvas.addEventListener("click", activate);
-  stage.addEventListener("click", (event) => { if (event.target === stage) closeStage(); });
   typeForm.addEventListener("submit", (event) => { event.preventDefault(); const text = typeInput.value; typeInput.value = ""; ask(text); });
   typeInput.addEventListener("focus", () => { clearTimeout(A.closeTimer); clearTimeout(A.commandTimer); A.awaitingCommand = false; if (A.state === "listening") setState("idle"); });
   document.addEventListener("keydown", (event) => {

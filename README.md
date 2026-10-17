@@ -103,6 +103,8 @@ cp /home/pi/reflect-os/scripts/reflect-os.desktop /home/pi/.config/autostart/ref
 
 Reflect has a built-in voice assistant in the style of Iron Man's Jarvis. Say **"Jarvis"** (or "Hey Jarvis, what's on today?"), press `J`, or tap the glowing orb at the bottom of the screen. It answers out loud, shows its reply on the mirror, and can act on the mirror: switch screens, control Home Assistant lights, switches, locks, covers, scenes and heating, play, pause, skip or search Spotify, add and complete tasks, add calendar events, and change display brightness or night mode. It can see the live weather, calendar, tasks, music and devices, so questions like "do I need an umbrella?" just work. After it answers it keeps listening for a few seconds, so you can follow up without saying its name again.
 
+While it talks, Jarvis sits in a small panel in a corner so the screen stays visible. When it shows you something (a tab, a panel, a widget or a device), a spark flies from its orb to that spot, brackets lock onto it, and the panel moves to whichever corner keeps it out of the way.
+
 Setup: add your Anthropic API key to `reflect-os.config.json` (copy `reflect-os.config.example.json` if you don't have one yet), then restart Reflect OS:
 
 ```json
