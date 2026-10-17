@@ -80,7 +80,7 @@ let appVersionText = "";
 const profileInputs = {personName:$("personName"),greetingPrefix:$("greetingPrefix"),accentColor:$("accentColor"),clockFormat:$("clockFormat"),defaultView:$("defaultView"),navTimeout:$("navTimeout"),weatherPlace:$("weatherPlace"),spotifyWidgetMode:$("spotifyWidgetMode"),spotifyDevice:$("spotifyDevice"),spotifyAutoplay:$("spotifyAutoplay")};
 let profile = loadProfile();
 let hideTimer, longPressTimer, slideshowTimer, photoDb;
-let touchStartX = 0, isEditing = false, selectedWidget = "clock", calendarView = "day", taskFilter = "today", storeTab = "discover", currentPhoto = 0;
+let touchStartX = 0, isEditing = false, selectedWidget = "clock", calendarView = "day", calendarFocus = "", taskFilter = "today", storeTab = "discover", currentPhoto = 0;
 let photoRecords = [], photoUrls = new Map();
 let spotifyPlayer = null, spotifyDeviceId = "", spotifyActiveDeviceId = "", spotifySdkLoading = false, spotifyNeedsPlaybackPermission = false, spotifyNeedsRecentPermission = false, spotifySearchResults = [], spotifyRecentTracks = [];
 let homeAssistantEntities = [];
@@ -246,7 +246,7 @@ function affirmationPool(){
 }
 function restartAffirmations(){clearInterval(affirmationTimer);const pool=affirmationPool();if(profile.widgets.affirmations?.visible&&pool.length>1)affirmationTimer=setInterval(()=>{affirmationIndex=(affirmationIndex+1)%pool.length;const el=document.querySelector('[data-widget="affirmations"] .widget-body');if(el)el.innerHTML=renderWidget("affirmations");},Math.max(8,Number(profile.affirmations.interval)||30)*1000);}
 function restartSlideshow(){clearInterval(slideshowTimer);if(profile.widgets.photos.visible&&photoRecords.length>1)slideshowTimer=setInterval(()=>{currentPhoto=profile.photos.order==="shuffle"?Math.floor(Math.random()*photoRecords.length):(currentPhoto+1)%photoRecords.length;renderHome();},profile.photos.interval*1000);}
-function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();time.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now);const sec=now.getSeconds();if($("timeSec"))$("timeSec").textContent=String(sec).padStart(2,"0");const bar=$("secBar");if(bar){bar.style.transition=sec===0?"none":"";bar.style.width=`${(sec+1)/60*100}%`;}$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
+function updateClock(){const time=$("timeNow");if(!time)return;const now=new Date();const hm=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",hour12:profile.clockFormat==="12"}).format(now),period=(hm.match(/\s*([ap]\.?m\.?)$/i)||[])[1]||"";time.innerHTML=period?`${esc(hm.slice(0,hm.length-period.length).trim())}<small class="time-ampm">${esc(period)}</small>`:esc(hm);const sec=now.getSeconds();if($("timeSec"))$("timeSec").textContent=String(sec).padStart(2,"0");const bar=$("secBar");if(bar){bar.style.transition=sec===0?"none":"";bar.style.width=`${(sec+1)/60*100}%`;}$("dateNow").textContent=new Intl.DateTimeFormat("en-GB",{weekday:"long",day:"numeric",month:"long"}).format(now);const hour=now.getHours();$("greeting").textContent=`${profile.greetingPrefix} ${hour<12?"morning":hour<18?"afternoon":"evening"}, ${profile.personName}`;}
 
 function statusFor(id){const state=profile.addOns[id];if(state.error)return "Needs attention";if(!state.installed)return "Available";if(addOnRegistry[id].requiresConnection&&!connected(id))return "Connection required";return connected(id)?"Connected":"Installed";}
 function greetingWord(){const h=new Date().getHours();return h<12?"morning":h<18?"afternoon":"evening";}
@@ -587,7 +587,9 @@ async function movePhoto(id,direction){const index=profile.photos.ids.indexOf(id
 
 function calColor(i){return ["#8f7bff","#c98a5a","#5b86c9","#5aa88a","#c96a8a"][i%5];}
 function renderCalendarPage(){
-  const now=new Date();
+  // calendarFocus (YYYY-MM-DD) shows another day, week or month; empty is today.
+  const today=new Date(),focus=calendarFocus?new Date(`${calendarFocus}T${String(today.getHours()).padStart(2,"0")}:${String(today.getMinutes()).padStart(2,"0")}`):null;
+  const now=focus&&!Number.isNaN(focus.valueOf())?focus:today,isToday=now.toDateString()===today.toDateString();
   const status=$("calendarStatus");if(status)status.textContent=connected("googleCalendar")?"Google Calendar · live":"Device calendar";
   const cd=$("calDate");if(cd)cd.textContent=now.toLocaleDateString([], {weekday:"long",day:"numeric",month:"long"});
   const timeline=$("calendarTimeline");if(!timeline)return;
@@ -602,11 +604,11 @@ function renderCalendarPage(){
       return `<div class="cal-ev" style="top:${(s-startH)/span*100}%;height:${(en-s)/span*100}%;--ev:${calColor(i)}"><span class="ev-time">${esc(e.time)}</span><span class="ev-title">${esc(e.title)}</span>${e.location?`<span class="ev-loc">${esc(e.location)}</span>`:""}</div>`;
     }).join("");
     const nowPos=(now.getHours()+now.getMinutes()/60-startH)/span*100;
-    const nowLine=(nowPos>=0&&nowPos<=100)?`<div class="cal-now" style="top:${nowPos}%"><span>${now.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span></div>`:"";
+    const nowLine=(isToday&&nowPos>=0&&nowPos<=100)?`<div class="cal-now" style="top:${nowPos}%"><span>${now.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span></div>`:"";
     timeline.className="cal-timeline day";
-    timeline.innerHTML=`<div class="cal-hours">${hours.map(h=>`<div class="cal-hour"><span>${String(h).padStart(2,"0")}:00</span></div>`).join("")}</div><div class="cal-events">${nowLine}${blocks||'<div class="cal-empty">No events today</div>'}</div>`;
+    timeline.innerHTML=`<div class="cal-hours">${hours.map(h=>`<div class="cal-hour"><span>${String(h).padStart(2,"0")}:00</span></div>`).join("")}</div><div class="cal-events">${nowLine}${blocks||`<div class="cal-empty">No events ${isToday?"today":now.toLocaleDateString([], {weekday:"long",day:"numeric",month:"long"})}</div>`}</div>`;
   } else {
-    let list=events;if(calendarView==="week")list=events.filter(e=>{const raw=e.start||e.date;return raw&&new Date(raw)<=endOfWeek;});
+    const dayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate());let list=isToday?events:events.filter(e=>{const raw=e.start||e.date;return raw&&new Date(raw)>=dayStart;});if(calendarView==="week")list=list.filter(e=>{const raw=e.start||e.date;return raw&&new Date(raw)<=endOfWeek;});
     timeline.className="cal-timeline list";
     timeline.innerHTML=list.map((e,i)=>`<article class="cal-listrow" style="--ev:${calColor(i)}"><time>${esc(e.day)} · ${esc(e.time)}</time><div><h3>${esc(e.title)}</h3><p>${esc(e.location||"No location")}</p></div></article>`).join("")||'<div class="cal-empty">No upcoming events</div>';
   }
@@ -780,7 +782,10 @@ async function runSpotifyAction(action){if(!connected("spotify")){showView("sett
 // House (3D) and Rooms (tiles) are two ways of looking at one Smart Home screen; it opens on whichever was used last.
 const homeModeKey="reflect-home-mode";
 function homeMode(){try{return localStorage.getItem(homeModeKey)==="homekit"?"homekit":"house3d";}catch{return "house3d";}}
-function showView(name,reveal=true){if(name==="smarthome")name=homeMode();if(name==="house3d"||name==="homekit"){try{localStorage.setItem(homeModeKey,name);}catch{}document.querySelectorAll("[data-home-mode]").forEach(b=>{const on=b.dataset.homeMode===name;b.classList.toggle("is-active",on);b.setAttribute("aria-selected",String(on));});}const navName=name==="house3d"||name==="homekit"?"smarthome":name;document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===navName;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===navName));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
+// Where "go back" returns to.
+let viewHistory=[];
+function goBack(){const prev=viewHistory.pop();if(!prev)return "";showView(prev,false);viewHistory.pop();return prev;}
+function showView(name,reveal=true){if(name==="smarthome")name=homeMode();const fromView=document.querySelector(".view.is-active")?.id.replace("view-","");if(fromView&&fromView!==name)viewHistory=[...viewHistory,fromView].slice(-20);if(name==="house3d"||name==="homekit"){try{localStorage.setItem(homeModeKey,name);}catch{}document.querySelectorAll("[data-home-mode]").forEach(b=>{const on=b.dataset.homeMode===name;b.classList.toggle("is-active",on);b.setAttribute("aria-selected",String(on));});}const navName=name==="house3d"||name==="homekit"?"smarthome":name;document.body.classList.toggle("in-settings",name==="settings");if(name==="settings"){settingsPage=null;if($("settingsDetail"))$("settingsDetail").hidden=true;if($("settingsRoot"))$("settingsRoot").hidden=false;renderSettings();}views.forEach(view=>view.classList.toggle("is-active",view.id===`view-${name}`));navItems.forEach(item=>{const active=item.dataset.view===navName;item.classList.toggle("is-active",active);item.toggleAttribute("aria-current",active);});document.querySelectorAll(".side-item").forEach(i=>i.classList.toggle("is-active",i.dataset.view===navName));if(name==="music"){ensureSpotifySdk();loadSpotifyPlaylists();}if(name==="homekit")loadHomeAssistant();window.ReflectHome3D?.setActive(name==="house3d");if(reveal)showNav();}
 function showNav(){nav.classList.add("is-visible");clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(!isEditing)nav.classList.remove("is-visible");},profile.navTimeout);}
 function setEditing(value){isEditing=value;document.body.classList.toggle("is-editing",value);if(!value)selectedWidget="clock";renderHome();}
 
@@ -812,7 +817,7 @@ $("spotifySearchForm")?.addEventListener("submit",searchSpotify);$("spotifyRefre
 $("weatherSearchForm")?.addEventListener("submit",searchWeatherLocations);
 document.querySelectorAll("[data-calendar-view]").forEach(button=>button.addEventListener("click",()=>{calendarView=button.dataset.calendarView;document.querySelectorAll("[data-calendar-view]").forEach(item=>item.classList.toggle("is-selected",item===button));renderCalendarPage();}));
 document.querySelectorAll("[data-task-filter]").forEach(button=>button.addEventListener("click",()=>{taskFilter=button.dataset.taskFilter;document.querySelectorAll("[data-task-filter]").forEach(item=>item.classList.toggle("is-selected",item===button));renderTaskPage();}));
-$("calToday")?.addEventListener("click",()=>renderCalendarPage());
+$("calToday")?.addEventListener("click",()=>{calendarFocus="";renderCalendarPage();});
 $("addEvent").addEventListener("click",()=>openItemDialog("event"));$("addTask").addEventListener("click",()=>openItemDialog("task"));$("itemForm").addEventListener("submit",addItem);$("cancelItem").addEventListener("click",()=>$("itemDialog").close());
 $("affirmationMode")?.addEventListener("change",()=>{affirmationIndex=0;profile.affirmations.mode=$("affirmationMode").value;saveProfile();renderHome();});
 $("affirmationInterval")?.addEventListener("change",()=>{profile.affirmations.interval=Number($("affirmationInterval").value);saveProfile();restartAffirmations();});

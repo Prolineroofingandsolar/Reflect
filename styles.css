@@ -200,6 +200,8 @@ button {
   line-height: 0.9;
   color: rgba(255, 255, 255, 0.66);
 }
+.time:has(.time-ampm) { white-space: nowrap; }
+.time-ampm { font-size: .28em; margin-left: .18em; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
 
 .date,
 .greeting,

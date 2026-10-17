@@ -49,6 +49,11 @@ GET             /api/spotify/search
 GET             /api/spotify/recent
 GET             /api/spotify/sdk-token
 GET             /api/google/calendar/events
+POST            /api/google/calendar/events            (Jarvis: add an event)
+PATCH, DELETE   /api/google/calendar/events/:id        (Jarvis: move or cancel)
+GET             /api/homeassistant/history?ids=&hours= (recent changes, e.g. doorbell presses)
+POST            /api/spotify/player/shuffle|repeat
+POST            /api/spotify/like
 GET             /api/assistant/status
 POST            /api/assistant/chat
 POST            /api/assistant/speak

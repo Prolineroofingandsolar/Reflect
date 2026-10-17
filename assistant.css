@@ -344,3 +344,16 @@ body.is-editing .jv-timers { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .jv-stage, .jv-stage::before, .jv-br, .jv-log li, .jv-timer, .jv-timer b, .jv-reply, .jv-state::after { animation: none !important; }
 }
+
+/* Screen sleep: the glass goes black, a plain mirror, until Jarvis hears his name or someone touches it. */
+.jv-sleep { position: fixed; inset: 0; z-index: 2000; background: #000; opacity: 0; pointer-events: none; transition: opacity .8s ease; }
+body.jv-asleep .jv-sleep { opacity: 1; pointer-events: auto; }
+body.jv-asleep .jv-timers { opacity: .25; }
+
+/* A panel Jarvis was asked to show lights up briefly. */
+.jv-spotlight { animation: jv-spotlight 2.2s ease-out; }
+@keyframes jv-spotlight {
+  0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb, 86, 216, 255), .0); }
+  15% { box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 86, 216, 255), .9), 0 0 28px rgba(var(--accent-rgb, 86, 216, 255), .45); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb, 86, 216, 255), 0); }
+}
